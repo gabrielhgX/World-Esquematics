@@ -2,6 +2,9 @@ import type { WorldConfig } from './WorldConfig';
 import { LayerStack } from './LayerStack';
 import { TerrainLayer } from '../layers/TerrainLayer';
 import { WaterLayer } from '../layers/WaterLayer';
+import { RoadLayer } from '../layers/RoadLayer';
+import { RegionLayer } from '../layers/RegionLayer';
+import { POILayer } from '../layers/POILayer';
 import { newId } from '../utils/id';
 
 /**
@@ -20,10 +23,22 @@ export class WorldData {
   /** camada d'água padrão, com o oceano global (README §4.3/§7.2) */
   readonly water: WaterLayer;
 
+  /** grafo planar de estradas (README §4.5, D9) */
+  readonly roads: RoadLayer;
+
+  readonly regions: RegionLayer;
+  readonly pois: POILayer;
+
   constructor(readonly config: WorldConfig) {
     this.terrain = new TerrainLayer(config, newId());
     this.layers.add(this.terrain);
     this.water = new WaterLayer(newId());
     this.layers.add(this.water);
+    this.roads = new RoadLayer(newId());
+    this.layers.add(this.roads);
+    this.regions = new RegionLayer(newId());
+    this.layers.add(this.regions);
+    this.pois = new POILayer(newId());
+    this.layers.add(this.pois);
   }
 }
