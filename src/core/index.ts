@@ -12,6 +12,7 @@ export { WorldData } from './world/WorldData';
 export { TerrainLayer } from './layers/TerrainLayer';
 export * from './raster/TiledRaster';
 export * from './raster/kernels';
+export { resampleBicubicU16 } from './raster/resample';
 export { TsRasterKernels } from './raster/kernelsTs';
 export * from './commands/Command';
 export { History, DEFAULT_HISTORY_BUDGET_BYTES } from './commands/History';

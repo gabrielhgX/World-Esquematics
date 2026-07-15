@@ -138,6 +138,29 @@ export class TiledRaster<T extends RasterArray> {
     }
   }
 
+  /**
+   * Materializa o raster esparso num array denso widthCells×heightCells
+   * (exportadores e serialização; README §9). Cópia por linha de tile.
+   */
+  toDense(createArray: (length: number) => T): T {
+    const out = createArray(this.widthCells * this.heightCells);
+    if (this.fillValue !== 0) out.fill(this.fillValue);
+    for (const [key, tile] of this.tiles) {
+      const { tx, ty } = parseTileKey(key);
+      const x0 = tx * this.tileSize;
+      const y0 = ty * this.tileSize;
+      const w = Math.min(this.tileSize, this.widthCells - x0);
+      const h = Math.min(this.tileSize, this.heightCells - y0);
+      for (let row = 0; row < h; row++) {
+        out.set(
+          tile.subarray(row * this.tileSize, row * this.tileSize + w) as never,
+          (y0 + row) * this.widthCells + x0,
+        );
+      }
+    }
+    return out;
+  }
+
   /** Tiles cobertos por um retângulo de células (bbox de um pincel, p.ex.). */
   tilesInCellRect(cx0: number, cy0: number, cx1: number, cy1: number): TileKey[] {
     const x0 = Math.max(0, Math.floor(cx0));
