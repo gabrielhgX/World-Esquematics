@@ -59,6 +59,14 @@ export class TsRasterKernels implements RasterKernels {
     });
   }
 
+  applyCarve(raster: TiledRaster<Uint16Array>, stamp: BrushStamp, target_u16: number): void {
+    this.forEachCellInStamp(raster, stamp, (x, y, weight) => {
+      const current = raster.get(x, y);
+      if (current <= target_u16) return; // só rebaixa, nunca aterra
+      raster.set(x, y, clampU16(current + (target_u16 - current) * weight));
+    });
+  }
+
   /** Varre as células dentro do círculo do stamp com weight = falloff × strength. */
   private forEachCellInStamp(
     raster: TiledRaster<Uint16Array>,

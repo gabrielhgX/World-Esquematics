@@ -1,6 +1,7 @@
 import type { WorldConfig } from './WorldConfig';
 import { LayerStack } from './LayerStack';
 import { TerrainLayer } from '../layers/TerrainLayer';
+import { WaterLayer } from '../layers/WaterLayer';
 import { newId } from '../utils/id';
 
 /**
@@ -16,8 +17,13 @@ export class WorldData {
   /** o relevo é singleton (README §4.1) — nasce com o mundo */
   readonly terrain: TerrainLayer;
 
+  /** camada d'água padrão, com o oceano global (README §4.3/§7.2) */
+  readonly water: WaterLayer;
+
   constructor(readonly config: WorldConfig) {
     this.terrain = new TerrainLayer(config, newId());
     this.layers.add(this.terrain);
+    this.water = new WaterLayer(newId());
+    this.layers.add(this.water);
   }
 }

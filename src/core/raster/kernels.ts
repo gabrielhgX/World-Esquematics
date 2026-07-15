@@ -31,6 +31,12 @@ export interface RasterKernels {
 
   /** Flatten: puxa para a altura do primeiro clique (target). */
   applyFlatten(raster: TiledRaster<Uint16Array>, stamp: BrushStamp, target_u16: number): void;
+
+  /**
+   * Carve: como flatten, mas só REBAIXA (nunca sobe) — usado para cavar
+   * leito de rio/estrada sem aterrar vales que já estejam abaixo do alvo.
+   */
+  applyCarve(raster: TiledRaster<Uint16Array>, stamp: BrushStamp, target_u16: number): void;
 }
 
 /** Peso do falloff para t = dist/raio ∈ [0..1]. */
