@@ -1,16 +1,21 @@
-import type { WorldData } from '../core';
+import { ContourCache, type WorldData } from '../core';
 import { Camera2D, type Vec2 } from './Camera2D';
 import { WebGLRenderer } from './webgl/WebGLRenderer';
 import { RulerOverlay } from './canvas2d/RulerOverlay';
+import { ContourOverlay } from './canvas2d/ContourOverlay';
+import type { Modifiers, Tool } from '../tools/Tool';
 
 /**
  * Viewport (README §6): dois canvases empilhados —
- *  - WebGL (fundo): raster (terreno/biomas/água nas próximas fases);
- *  - Canvas 2D (frente): vetores e overlays (réguas, futuramente curvas,
- *    estradas, gizmos).
+ *  - WebGL (fundo): terreno com hillshade + rampa de cor;
+ *  - Canvas 2D (frente): curvas de nível, réguas, overlay da ferramenta.
  *
  * SÓ LÊ o WorldData — escrita é papel exclusivo dos Commands (README §2).
- * Entrada da Fase 0: arrastar = pan; roda do mouse = zoom no cursor.
+ * É o consumidor único dos dirty tiles: a cada frame distribui para a GPU
+ * (texSubImage parcial) e para o ContourCache (invalidação).
+ *
+ * Entrada: botão esquerdo = ferramenta ativa (ou pan, sem ferramenta);
+ * botão do meio = pan sempre; roda = zoom no cursor.
  */
 export class Viewport {
   readonly camera = new Camera2D();
@@ -18,16 +23,21 @@ export class Viewport {
   /** Notifica a posição do cursor em metros (null ao sair do viewport). */
   onCursorMove: ((worldPt: Vec2 | null) => void) | null = null;
 
+  private activeTool: Tool | null = null;
+  private toolStroking = false;
+
   private readonly glCanvas: HTMLCanvasElement;
   private readonly overlayCanvas: HTMLCanvasElement;
   private readonly overlayCtx: CanvasRenderingContext2D;
   private readonly renderer: WebGLRenderer;
   private readonly ruler = new RulerOverlay();
+  private readonly contourCache: ContourCache;
+  private readonly contours: ContourOverlay;
   private readonly resizeObserver: ResizeObserver;
   private readonly abort = new AbortController();
 
   private rafId: number | null = null;
-  private dragging = false;
+  private panning = false;
   private lastPointer: Vec2 | null = null;
   private cssWidth = 0;
   private cssHeight = 0;
@@ -50,12 +60,23 @@ export class Viewport {
     const ctx = this.overlayCanvas.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D não está disponível.');
     this.overlayCtx = ctx;
-    this.renderer = new WebGLRenderer(this.glCanvas);
+    this.renderer = new WebGLRenderer(this.glCanvas, world);
+    this.contourCache = new ContourCache(world.terrain, world.config.terrainResolution_m);
+    this.contours = new ContourOverlay(world, this.contourCache);
 
     this.bindInput();
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
     this.resizeObserver.observe(container);
     this.handleResize();
+    this.updateCursorStyle();
+  }
+
+  setTool(tool: Tool | null): void {
+    if (this.toolStroking) this.activeTool?.onPointerUp();
+    this.toolStroking = false;
+    this.activeTool = tool;
+    this.updateCursorStyle();
+    this.requestRender();
   }
 
   /** Agenda um único render no próximo frame (coalescido via rAF). */
@@ -76,10 +97,20 @@ export class Viewport {
   }
 
   private render(): void {
+    // Consumidor único dos dirty tiles: GPU + cache de contornos (README §2).
+    const dirty = this.world.terrain.raster.consumeDirty();
+    if (dirty.length > 0) {
+      this.renderer.updateTiles(dirty);
+      this.contourCache.invalidate(dirty);
+    }
+
     this.renderer.render(this.camera);
+
     const ctx = this.overlayCtx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.cssWidth, this.cssHeight);
+    this.contours.draw(ctx, this.camera);
+    this.activeTool?.drawOverlay(ctx);
     this.ruler.draw(ctx, this.camera, this.cssWidth, this.cssHeight);
   }
 
@@ -114,10 +145,20 @@ export class Viewport {
     el.addEventListener(
       'pointerdown',
       (e) => {
-        if (e.button !== 0 && e.button !== 1) return;
-        this.dragging = true;
-        this.lastPointer = this.toLocal(e);
-        el.setPointerCapture(e.pointerId);
+        const pt = this.toLocal(e);
+        if (e.button === 0 && this.activeTool) {
+          this.toolStroking = true;
+          this.activeTool.onPointerDown(this.camera.screenToWorld(pt), toModifiers(e));
+          el.setPointerCapture(e.pointerId);
+          this.requestRender();
+          return;
+        }
+        if (e.button === 0 || e.button === 1) {
+          if (e.button === 1) e.preventDefault(); // sem autoscroll
+          this.panning = true;
+          this.lastPointer = pt;
+          el.setPointerCapture(e.pointerId);
+        }
       },
       { signal },
     );
@@ -126,22 +167,29 @@ export class Viewport {
       'pointermove',
       (e) => {
         const pt = this.toLocal(e);
-        if (this.dragging && this.lastPointer) {
+        if (this.panning && this.lastPointer) {
           this.camera.panByPixels(pt.x - this.lastPointer.x, pt.y - this.lastPointer.y);
           this.lastPointer = pt;
-          this.requestRender();
+        } else if (this.toolStroking && this.activeTool) {
+          this.activeTool.onPointerMove(this.camera.screenToWorld(pt));
+        } else if (this.activeTool) {
+          // sem arrasto: ainda move o preview do pincel
+          this.activeTool.onPointerMove(this.camera.screenToWorld(pt));
         }
         this.onCursorMove?.(this.camera.screenToWorld(pt));
+        this.requestRender();
       },
       { signal },
     );
 
-    const endDrag = () => {
-      this.dragging = false;
+    const endInteraction = () => {
+      if (this.toolStroking) this.activeTool?.onPointerUp();
+      this.toolStroking = false;
+      this.panning = false;
       this.lastPointer = null;
     };
-    el.addEventListener('pointerup', endDrag, { signal });
-    el.addEventListener('pointercancel', endDrag, { signal });
+    el.addEventListener('pointerup', endInteraction, { signal });
+    el.addEventListener('pointercancel', endInteraction, { signal });
     el.addEventListener('pointerleave', () => this.onCursorMove?.(null), { signal });
 
     el.addEventListener(
@@ -156,6 +204,10 @@ export class Viewport {
     );
   }
 
+  private updateCursorStyle(): void {
+    this.container.style.cursor = this.activeTool?.cursor ?? 'grab';
+  }
+
   private toLocal(e: PointerEvent | WheelEvent): Vec2 {
     const rect = this.container.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -168,4 +220,8 @@ export class Viewport {
     canvas.style.zIndex = zIndex;
     return canvas;
   }
+}
+
+function toModifiers(e: PointerEvent): Modifiers {
+  return { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey };
 }

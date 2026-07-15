@@ -31,6 +31,87 @@ body {
   min-height: 0;
 }
 
+/* ---- barra de ferramentas ---- */
+
+.toolbar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 6px 12px;
+  background: #232528;
+  border-bottom: 1px solid #3a3d42;
+  user-select: none;
+}
+
+.tool-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.toolbar-right {
+  margin-left: auto;
+}
+
+.toolbar button {
+  padding: 5px 12px;
+  font-size: 13px;
+  color: #d6d9dd;
+  background: #1a1c1e;
+  border: 1px solid #3a3d42;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.toolbar button:hover:not(:disabled) {
+  border-color: #5b7fb9;
+}
+
+.toolbar button.active {
+  background: #3d6cb3;
+  border-color: #3d6cb3;
+  color: #fff;
+}
+
+.toolbar button:disabled {
+  color: #6a6f75;
+  cursor: not-allowed;
+}
+
+.toolbar select {
+  padding: 5px 8px;
+  font-size: 13px;
+  color: #d6d9dd;
+  background: #1a1c1e;
+  border: 1px solid #3a3d42;
+  border-radius: 6px;
+}
+
+.brush-controls label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: #9aa0a6;
+}
+
+.brush-controls input[type='range'] {
+  width: 110px;
+  accent-color: #3d6cb3;
+}
+
+.brush-controls .value {
+  min-width: 48px;
+  color: #d6d9dd;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-usage {
+  font-size: 12px;
+  color: #9aa0a6;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- barra de status ---- */
 
 .status-bar {

@@ -10,6 +10,7 @@ interface Props {
 export function StatusBar({ world, cursor }: Props) {
   const grid = deriveGrid(world.config);
   const megabytes = estimateTerrainBytes(world.config) / 1_000_000;
+  const height = cursor ? world.terrain.getHeight(cursor.x, cursor.y) : null;
 
   return (
     <footer className="status-bar">
@@ -19,7 +20,9 @@ export function StatusBar({ world, cursor }: Props) {
       </span>
       <span>heightmap ≈ {megabytes.toFixed(0)} MB</span>
       <span className="status-cursor">
-        {cursor ? `L ${formatMeters(cursor.x)} · N ${formatMeters(cursor.y)}` : '—'}
+        {cursor && height !== null
+          ? `L ${formatMeters(cursor.x)} · N ${formatMeters(cursor.y)} · alt ${formatMeters(height)}`
+          : '—'}
       </span>
     </footer>
   );

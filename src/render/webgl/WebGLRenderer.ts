@@ -1,21 +1,23 @@
+import type { WorldData, TileKey } from '../../core';
 import type { Camera2D } from '../Camera2D';
+import { TerrainRenderer } from './TerrainRenderer';
 
 /**
  * Renderer WebGL2 do fundo (README §6): raster é WebGL, vetor é Canvas 2D.
- *
- * Na Fase 0 limpa a tela (a "tela cinza" do entregável). As passadas de
- * terreno/hillshade/biomas/água entram nas Fases 1–2 como camadas deste
- * pipeline — só leem o WorldData, nunca escrevem (README §2).
+ * Passadas atuais: 1. terreno (hillshade + rampa). Biomas e água entram nas
+ * Fases 2 e 4 como novas passadas. SÓ LÊ o WorldData (README §2).
  */
 export class WebGLRenderer {
   private readonly gl: WebGL2RenderingContext;
+  private readonly terrain: TerrainRenderer;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, world: WorldData) {
     const gl = canvas.getContext('webgl2');
     if (!gl) {
       throw new Error('WebGL2 não está disponível neste navegador.');
     }
     this.gl = gl;
+    this.terrain = new TerrainRenderer(gl, world);
   }
 
   /** Dimensões em pixels FÍSICOS (já multiplicados pelo devicePixelRatio). */
@@ -23,9 +25,15 @@ export class WebGLRenderer {
     this.gl.viewport(0, 0, widthPx, heightPx);
   }
 
-  render(_camera: Camera2D): void {
+  /** Reenvia à GPU somente os tiles sujos. */
+  updateTiles(dirtyKeys: TileKey[]): void {
+    if (dirtyKeys.length > 0) this.terrain.updateTiles(dirtyKeys);
+  }
+
+  render(camera: Camera2D): void {
     const gl = this.gl;
     gl.clearColor(0.15, 0.16, 0.18, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    this.terrain.render(camera);
   }
 }
