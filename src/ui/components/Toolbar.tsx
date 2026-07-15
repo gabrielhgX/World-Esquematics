@@ -3,12 +3,17 @@ import { UnrealExporter } from '../../io/exporters/unreal/UnrealExporter';
 import { writeZip } from '../../io/format/zip';
 import type { BrushSettings } from '../../tools/SculptTool';
 import type { WaterSettings } from '../../tools/WaterTool';
+import type { RoadSettings } from '../../tools/RoadTool';
+import type { RegionSettings } from '../../tools/RegionTool';
+import type { POISettings } from '../../tools/POITool';
 import { downloadBytes } from '../download';
 import type { ProjectSession } from '../session';
 import { SculptControls } from './SculptControls';
 import { WaterControls } from './WaterControls';
+import { RoadControls } from './RoadControls';
+import { MeasureControls, POIControls, RegionControls } from './VectorControls';
 
-export type ActiveToolName = 'pan' | 'sculpt' | 'water';
+export type ActiveToolName = 'pan' | 'sculpt' | 'water' | 'road' | 'region' | 'poi' | 'measure';
 
 interface Props {
   session: ProjectSession;
@@ -18,9 +23,25 @@ interface Props {
   onBrushChange: (brush: BrushSettings) => void;
   waterSettings: WaterSettings;
   onWaterSettingsChange: (settings: WaterSettings) => void;
+  roadSettings: RoadSettings;
+  onRoadSettingsChange: (settings: RoadSettings) => void;
+  regionSettings: RegionSettings;
+  onRegionSettingsChange: (settings: RegionSettings) => void;
+  poiSettings: POISettings;
+  onPOISettingsChange: (settings: POISettings) => void;
   /** muda a cada comando/undo/redo — mantém os botões sincronizados */
   historyTick: number;
 }
+
+const TOOL_BUTTONS: Array<{ id: ActiveToolName; label: string; title: string }> = [
+  { id: 'pan', label: 'Mover', title: 'Mover o mapa (arrastar)' },
+  { id: 'sculpt', label: 'Esculpir', title: 'Esculpir o relevo' },
+  { id: 'water', label: 'Água', title: 'Água: lagos, rios e nível do mar' },
+  { id: 'road', label: 'Estrada', title: 'Estradas: grafo planar de splines' },
+  { id: 'region', label: 'Região', title: 'Regiões nomeadas (polígonos)' },
+  { id: 'poi', label: 'POI', title: 'Pontos de interesse' },
+  { id: 'measure', label: 'Medir', title: 'Medição — não altera o mundo' },
+];
 
 export function Toolbar({
   session,
@@ -30,6 +51,12 @@ export function Toolbar({
   onBrushChange,
   waterSettings,
   onWaterSettingsChange,
+  roadSettings,
+  onRoadSettingsChange,
+  regionSettings,
+  onRegionSettingsChange,
+  poiSettings,
+  onPOISettingsChange,
   historyTick,
 }: Props) {
   const { history, bus } = session;
@@ -63,27 +90,16 @@ export function Toolbar({
   return (
     <div className="toolbar">
       <div className="tool-group">
-        <button
-          className={activeTool === 'pan' ? 'active' : ''}
-          onClick={() => onToolChange('pan')}
-          title="Mover o mapa (arrastar)"
-        >
-          Mover
-        </button>
-        <button
-          className={activeTool === 'sculpt' ? 'active' : ''}
-          onClick={() => onToolChange('sculpt')}
-          title="Esculpir o relevo"
-        >
-          Esculpir
-        </button>
-        <button
-          className={activeTool === 'water' ? 'active' : ''}
-          onClick={() => onToolChange('water')}
-          title="Água: lagos, rios e nível do mar"
-        >
-          Água
-        </button>
+        {TOOL_BUTTONS.map((tool) => (
+          <button
+            key={tool.id}
+            className={activeTool === tool.id ? 'active' : ''}
+            onClick={() => onToolChange(tool.id)}
+            title={tool.title}
+          >
+            {tool.label}
+          </button>
+        ))}
       </div>
 
       {activeTool === 'sculpt' && <SculptControls brush={brush} onBrushChange={onBrushChange} />}
@@ -95,6 +111,20 @@ export function Toolbar({
           historyTick={historyTick}
         />
       )}
+      {activeTool === 'road' && (
+        <RoadControls
+          session={session}
+          settings={roadSettings}
+          onSettingsChange={onRoadSettingsChange}
+        />
+      )}
+      {activeTool === 'region' && (
+        <RegionControls settings={regionSettings} onSettingsChange={onRegionSettingsChange} />
+      )}
+      {activeTool === 'poi' && (
+        <POIControls settings={poiSettings} onSettingsChange={onPOISettingsChange} />
+      )}
+      {activeTool === 'measure' && <MeasureControls />}
 
       <div className="tool-group toolbar-right">
         <button

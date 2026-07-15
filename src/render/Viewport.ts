@@ -4,6 +4,7 @@ import { WebGLRenderer } from './webgl/WebGLRenderer';
 import { RulerOverlay } from './canvas2d/RulerOverlay';
 import { ContourOverlay } from './canvas2d/ContourOverlay';
 import { WaterOverlay } from './canvas2d/WaterOverlay';
+import { VectorOverlay } from './canvas2d/VectorOverlay';
 import type { Modifiers, Tool } from '../tools/Tool';
 
 /**
@@ -36,6 +37,7 @@ export class Viewport {
   private readonly contours: ContourOverlay;
   private readonly waterCache: WaterSurfaceCache;
   private readonly waterOverlay: WaterOverlay;
+  private readonly vectorOverlay: VectorOverlay;
   private readonly resizeObserver: ResizeObserver;
   private readonly abort = new AbortController();
 
@@ -74,6 +76,7 @@ export class Viewport {
       world.config.heightRange,
     );
     this.waterOverlay = new WaterOverlay(world);
+    this.vectorOverlay = new VectorOverlay(world);
 
     this.bindInput();
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
@@ -127,6 +130,8 @@ export class Viewport {
     ctx.clearRect(0, 0, this.cssWidth, this.cssHeight);
     this.contours.draw(ctx, this.camera);
     this.waterOverlay.draw(ctx, this.camera);
+    // ordem do §6: estradas (5) → regiões (6) → POIs (7)
+    this.vectorOverlay.draw(ctx, this.camera);
     this.activeTool?.drawOverlay(ctx);
     this.ruler.draw(ctx, this.camera, this.cssWidth, this.cssHeight);
   }

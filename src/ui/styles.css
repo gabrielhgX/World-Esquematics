@@ -126,6 +126,26 @@ body {
   accent-color: #3d6cb3;
 }
 
+.brush-controls input[type='text'] {
+  width: 130px;
+  padding: 4px 6px;
+  font-size: 13px;
+  color: #d6d9dd;
+  background: #1a1c1e;
+  border: 1px solid #3a3d42;
+  border-radius: 6px;
+}
+
+.brush-controls input[type='color'] {
+  width: 34px;
+  height: 26px;
+  padding: 2px;
+  background: #1a1c1e;
+  border: 1px solid #3a3d42;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 .hint {
   font-size: 11px;
   color: #7a7f86;

@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import type { Vec2 } from '../render/Camera2D';
 import { DEFAULT_BRUSH, type BrushSettings } from '../tools/SculptTool';
 import { DEFAULT_WATER_SETTINGS, type WaterSettings } from '../tools/WaterTool';
+import { DEFAULT_ROAD_SETTINGS, type RoadSettings } from '../tools/RoadTool';
+import { DEFAULT_REGION_SETTINGS, type RegionSettings } from '../tools/RegionTool';
+import { DEFAULT_POI_SETTINGS, type POISettings } from '../tools/POITool';
 import { NewProjectDialog } from './components/NewProjectDialog';
 import { ViewportView } from './components/ViewportView';
 import { StatusBar } from './components/StatusBar';
@@ -16,6 +19,11 @@ export default function App() {
   const [waterSettings, setWaterSettings] = useState<WaterSettings>({
     ...DEFAULT_WATER_SETTINGS,
   });
+  const [roadSettings, setRoadSettings] = useState<RoadSettings>({ ...DEFAULT_ROAD_SETTINGS });
+  const [regionSettings, setRegionSettings] = useState<RegionSettings>({
+    ...DEFAULT_REGION_SETTINGS,
+  });
+  const [poiSettings, setPOISettings] = useState<POISettings>({ ...DEFAULT_POI_SETTINGS });
   const [historyTick, setHistoryTick] = useState(0);
 
   // Undo/redo por teclado + botões sempre em dia com o histórico.
@@ -62,6 +70,12 @@ export default function App() {
         onBrushChange={setBrush}
         waterSettings={waterSettings}
         onWaterSettingsChange={setWaterSettings}
+        roadSettings={roadSettings}
+        onRoadSettingsChange={setRoadSettings}
+        regionSettings={regionSettings}
+        onRegionSettingsChange={setRegionSettings}
+        poiSettings={poiSettings}
+        onPOISettingsChange={setPOISettings}
         historyTick={historyTick}
       />
       <ViewportView
@@ -69,6 +83,9 @@ export default function App() {
         activeTool={activeTool}
         brush={brush}
         waterSettings={waterSettings}
+        roadSettings={roadSettings}
+        regionSettings={regionSettings}
+        poiSettings={poiSettings}
         onCursorMove={setCursor}
       />
       <StatusBar world={session.world} cursor={cursor} />
