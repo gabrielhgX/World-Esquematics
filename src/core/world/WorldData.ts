@@ -1,5 +1,7 @@
 import type { WorldConfig } from './WorldConfig';
 import { LayerStack } from './LayerStack';
+import { TerrainLayer } from '../layers/TerrainLayer';
+import { newId } from '../utils/id';
 
 /**
  * ★ WORLD DATA — a verdade única (README §2, D1).
@@ -11,5 +13,11 @@ import { LayerStack } from './LayerStack';
 export class WorldData {
   readonly layers = new LayerStack();
 
-  constructor(readonly config: WorldConfig) {}
+  /** o relevo é singleton (README §4.1) — nasce com o mundo */
+  readonly terrain: TerrainLayer;
+
+  constructor(readonly config: WorldConfig) {
+    this.terrain = new TerrainLayer(config, newId());
+    this.layers.add(this.terrain);
+  }
 }

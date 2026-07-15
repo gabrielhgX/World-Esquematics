@@ -114,6 +114,46 @@ export class TiledRaster<T extends RasterArray> {
     return this.tiles.has(tileKey(tx, ty));
   }
 
+  /**
+   * Restaura o conteúdo inteiro de um tile (undo/redo por tile — README §5.1).
+   * Aloca o tile se necessário e o marca sujo.
+   */
+  setTileData(tx: number, ty: number, data: RasterArray): void {
+    const tile = this.getOrCreateTile(tx, ty);
+    if (data.length !== tile.length) {
+      throw new RangeError(`Tamanho de tile inválido: ${data.length} ≠ ${tile.length}`);
+    }
+    tile.set(data as never);
+    this.dirty.add(tileKey(tx, ty));
+  }
+
+  /**
+   * Desaloca um tile (volta a valer fillValue). Usado pelo undo quando o
+   * comando alocou o tile — preserva a esparsidade (D4).
+   */
+  deleteTile(tx: number, ty: number): void {
+    const key = tileKey(tx, ty);
+    if (this.tiles.delete(key)) {
+      this.dirty.add(key);
+    }
+  }
+
+  /** Tiles cobertos por um retângulo de células (bbox de um pincel, p.ex.). */
+  tilesInCellRect(cx0: number, cy0: number, cx1: number, cy1: number): TileKey[] {
+    const x0 = Math.max(0, Math.floor(cx0));
+    const y0 = Math.max(0, Math.floor(cy0));
+    const x1 = Math.min(this.widthCells - 1, Math.ceil(cx1));
+    const y1 = Math.min(this.heightCells - 1, Math.ceil(cy1));
+    if (x0 > x1 || y0 > y1) return [];
+    const keys: TileKey[] = [];
+    for (let ty = Math.floor(y0 / this.tileSize); ty <= Math.floor(y1 / this.tileSize); ty++) {
+      for (let tx = Math.floor(x0 / this.tileSize); tx <= Math.floor(x1 / this.tileSize); tx++) {
+        keys.push(tileKey(tx, ty));
+      }
+    }
+    return keys;
+  }
+
   get allocatedTileCount(): number {
     return this.tiles.size;
   }
