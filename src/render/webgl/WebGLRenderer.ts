@@ -1,4 +1,4 @@
-import type { WorldData, TileKey } from '../../core';
+import type { TiledRaster, WorldData, TileKey } from '../../core';
 import type { Camera2D } from '../Camera2D';
 import { TerrainRenderer } from './TerrainRenderer';
 
@@ -28,6 +28,11 @@ export class WebGLRenderer {
   /** Reenvia à GPU somente os tiles sujos. */
   updateTiles(dirtyKeys: TileKey[]): void {
     if (dirtyKeys.length > 0) this.terrain.updateTiles(dirtyKeys);
+  }
+
+  /** Reenvia os tiles sujos do raster derivado de superfície d'água. */
+  updateWaterTiles(dirtyKeys: TileKey[], waterRaster: TiledRaster<Uint16Array>): void {
+    if (dirtyKeys.length > 0) this.terrain.updateWaterTiles(dirtyKeys, waterRaster);
   }
 
   render(camera: Camera2D): void {

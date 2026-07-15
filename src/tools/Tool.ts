@@ -18,6 +18,8 @@ export interface Tool {
   onPointerUp(): void;
   /** preview do pincel, guias — desenhado por cima dos vetores */
   drawOverlay(ctx: CanvasRenderingContext2D): void;
+  /** teclas sem modificador (Enter/Escape…); true = consumida */
+  onKeyDown?(key: string): boolean;
   readonly cursor: string;
 }
 

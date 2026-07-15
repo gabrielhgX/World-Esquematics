@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Vec2 } from '../render/Camera2D';
 import { DEFAULT_BRUSH, type BrushSettings } from '../tools/SculptTool';
+import { DEFAULT_WATER_SETTINGS, type WaterSettings } from '../tools/WaterTool';
 import { NewProjectDialog } from './components/NewProjectDialog';
 import { ViewportView } from './components/ViewportView';
 import { StatusBar } from './components/StatusBar';
@@ -12,6 +13,9 @@ export default function App() {
   const [cursor, setCursor] = useState<Vec2 | null>(null);
   const [activeTool, setActiveTool] = useState<ActiveToolName>('sculpt');
   const [brush, setBrush] = useState<BrushSettings>({ ...DEFAULT_BRUSH });
+  const [waterSettings, setWaterSettings] = useState<WaterSettings>({
+    ...DEFAULT_WATER_SETTINGS,
+  });
   const [historyTick, setHistoryTick] = useState(0);
 
   // Undo/redo por teclado + botões sempre em dia com o histórico.
@@ -56,12 +60,15 @@ export default function App() {
         onToolChange={setActiveTool}
         brush={brush}
         onBrushChange={setBrush}
+        waterSettings={waterSettings}
+        onWaterSettingsChange={setWaterSettings}
         historyTick={historyTick}
       />
       <ViewportView
         session={session}
         activeTool={activeTool}
         brush={brush}
+        waterSettings={waterSettings}
         onCursorMove={setCursor}
       />
       <StatusBar world={session.world} cursor={cursor} />

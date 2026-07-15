@@ -1,8 +1,9 @@
-import { ContourCache, type WorldData } from '../core';
+import { ContourCache, WaterSurfaceCache, deriveGrid, type WorldData } from '../core';
 import { Camera2D, type Vec2 } from './Camera2D';
 import { WebGLRenderer } from './webgl/WebGLRenderer';
 import { RulerOverlay } from './canvas2d/RulerOverlay';
 import { ContourOverlay } from './canvas2d/ContourOverlay';
+import { WaterOverlay } from './canvas2d/WaterOverlay';
 import type { Modifiers, Tool } from '../tools/Tool';
 
 /**
@@ -33,6 +34,8 @@ export class Viewport {
   private readonly ruler = new RulerOverlay();
   private readonly contourCache: ContourCache;
   private readonly contours: ContourOverlay;
+  private readonly waterCache: WaterSurfaceCache;
+  private readonly waterOverlay: WaterOverlay;
   private readonly resizeObserver: ResizeObserver;
   private readonly abort = new AbortController();
 
@@ -63,6 +66,14 @@ export class Viewport {
     this.renderer = new WebGLRenderer(this.glCanvas, world);
     this.contourCache = new ContourCache(world.terrain, world.config.terrainResolution_m);
     this.contours = new ContourOverlay(world, this.contourCache);
+    const grid = deriveGrid(world.config);
+    this.waterCache = new WaterSurfaceCache(
+      grid.widthCells,
+      grid.heightCells,
+      world.config.terrainResolution_m,
+      world.config.heightRange,
+    );
+    this.waterOverlay = new WaterOverlay(world);
 
     this.bindInput();
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
@@ -103,6 +114,11 @@ export class Viewport {
       this.renderer.updateTiles(dirty);
       this.contourCache.invalidate(dirty);
     }
+    // superfície d'água derivada: sincroniza se a WaterLayer mudou de versão
+    const dirtyWater = this.waterCache.sync(this.world.water);
+    if (dirtyWater.length > 0) {
+      this.renderer.updateWaterTiles(dirtyWater, this.waterCache.surfaceRaster);
+    }
 
     this.renderer.render(this.camera);
 
@@ -110,6 +126,7 @@ export class Viewport {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.cssWidth, this.cssHeight);
     this.contours.draw(ctx, this.camera);
+    this.waterOverlay.draw(ctx, this.camera);
     this.activeTool?.drawOverlay(ctx);
     this.ruler.draw(ctx, this.camera, this.cssWidth, this.cssHeight);
   }
@@ -201,6 +218,20 @@ export class Viewport {
         this.requestRender();
       },
       { passive: false, signal },
+    );
+
+    // teclas para a ferramenta ativa (Enter conclui rio, Esc cancela…);
+    // atalhos com Ctrl/Cmd (undo/redo) ficam com a aplicação
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (this.activeTool?.onKeyDown?.(e.key)) {
+          e.preventDefault();
+          this.requestRender();
+        }
+      },
+      { signal },
     );
   }
 

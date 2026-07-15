@@ -1,4 +1,4 @@
-import type { WorldData } from '../../core';
+import type { TiledRaster, WorldData } from '../../core';
 import { parseTileKey, type TileKey } from '../../core';
 import type { Camera2D } from '../Camera2D';
 import { createProgram } from './glUtils';
@@ -28,9 +28,11 @@ precision highp float;
 precision highp usampler2D;
 
 uniform usampler2D u_height;  // R16UI
+uniform usampler2D u_water;   // R16UI: cota u16 da superfície dos lagos, 0 = sem água
 uniform vec2 u_grid;          // células (largura, altura)
 uniform float u_res;          // metros por célula
 uniform vec2 u_range;         // heightRange (min_m, max_m)
+uniform float u_seaLevel;     // cota do oceano global (m)
 
 in vec2 v_world;
 out vec4 outColor;
@@ -84,13 +86,34 @@ void main() {
   // montanhas e vales.
   vec3 sun = normalize(vec3(-0.5, 0.5, 0.7071));
   float lambert = max(dot(n, sun), 0.0);
-  outColor = vec4(ramp(h) * (0.4 + 0.6 * lambert), 1.0);
+  vec3 color = ramp(h) * (0.4 + 0.6 * lambert);
+
+  // Água por PROFUNDIDADE DERIVADA (README §4.3/§6, D8):
+  // depth = surface − height, no shader. depth ≤ 0 → terra seca — a margem
+  // se resolve sozinha; esculpir o relevo move a margem automaticamente.
+  ivec2 cellIdx = ivec2(clamp(cell, vec2(0.0), u_grid - 1.0));
+  float lakeU16 = float(texelFetch(u_water, cellIdx, 0).r);
+  float surface_m = u_seaLevel;
+  if (lakeU16 > 0.5) {
+    surface_m = max(surface_m, u_range.x + (lakeU16 / 65535.0) * (u_range.y - u_range.x));
+  }
+  float depth = surface_m - h;
+  if (depth > 0.0) {
+    vec3 shallow = vec3(0.32, 0.55, 0.62);
+    vec3 deep = vec3(0.07, 0.20, 0.36);
+    vec3 water = mix(shallow, deep, clamp(depth / 40.0, 0.0, 1.0));
+    float shore = clamp(depth / 1.5, 0.0, 1.0); // transição suave na margem
+    color = mix(color, water * (0.7 + 0.3 * lambert), 0.35 + 0.6 * shore);
+  }
+
+  outColor = vec4(color, 1.0);
 }`;
 
 export class TerrainRenderer {
   private readonly program: WebGLProgram;
   private readonly vao: WebGLVertexArrayObject;
   private readonly texture: WebGLTexture;
+  private readonly waterTexture: WebGLTexture;
   private readonly uniforms: {
     center: WebGLUniformLocation | null;
     mpp: WebGLUniformLocation | null;
@@ -98,9 +121,12 @@ export class TerrainRenderer {
     grid: WebGLUniformLocation | null;
     res: WebGLUniformLocation | null;
     range: WebGLUniformLocation | null;
+    seaLevel: WebGLUniformLocation | null;
   };
   /** buffer 512² reutilizado para regiões de tiles não alocados */
   private readonly baseTileData: Uint16Array;
+  /** idem, zerado, para tiles d'água desalocados (0 = sem água) */
+  private readonly zeroTileData: Uint16Array;
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
@@ -123,7 +149,12 @@ export class TerrainRenderer {
       grid: gl.getUniformLocation(this.program, 'u_grid'),
       res: gl.getUniformLocation(this.program, 'u_res'),
       range: gl.getUniformLocation(this.program, 'u_range'),
+      seaLevel: gl.getUniformLocation(this.program, 'u_seaLevel'),
     };
+    // unidades de textura fixas: 0 = relevo, 1 = superfície d'água
+    gl.useProgram(this.program);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_height'), 0);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_water'), 1);
 
     // Quad da extensão do mundo em metros (triangle strip).
     const res = world.config.terrainResolution_m;
@@ -159,14 +190,43 @@ export class TerrainRenderer {
         this.uploadTile(tx, ty);
       }
     }
+
+    // Textura da superfície d'água (mesma grade), inicia sem água (zeros).
+    this.zeroTileData = new Uint16Array(raster.tileSize * raster.tileSize);
+    this.waterTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.waterTexture);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16UI, raster.widthCells, raster.heightCells);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    for (let ty = 0; ty < raster.tilesY; ty++) {
+      for (let tx = 0; tx < raster.tilesX; tx++) {
+        this.uploadRegion(this.waterTexture, tx, ty, this.zeroTileData);
+      }
+    }
   }
 
   /** Reenvia só os tiles sujos (README §6.3: re-render após sculpt = só sujos). */
   updateTiles(dirtyKeys: TileKey[]): void {
-    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
     for (const key of dirtyKeys) {
       const { tx, ty } = parseTileKey(key);
       this.uploadTile(tx, ty);
+    }
+  }
+
+  /** Reenvia tiles sujos do raster DERIVADO de superfície d'água. */
+  updateWaterTiles(dirtyKeys: TileKey[], waterRaster: TiledRaster<Uint16Array>): void {
+    const raster = this.world.terrain.raster;
+    for (const key of dirtyKeys) {
+      const { tx, ty } = parseTileKey(key);
+      if (tx < 0 || ty < 0 || tx >= raster.tilesX || ty >= raster.tilesY) continue;
+      this.uploadRegion(
+        this.waterTexture,
+        tx,
+        ty,
+        waterRaster.getTile(tx, ty) ?? this.zeroTileData,
+      );
     }
   }
 
@@ -176,6 +236,8 @@ export class TerrainRenderer {
     gl.bindVertexArray(this.vao);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.waterTexture);
 
     const raster = this.world.terrain.raster;
     const { width, height } = camera.viewportSize;
@@ -189,24 +251,31 @@ export class TerrainRenderer {
       this.world.config.heightRange.min_m,
       this.world.config.heightRange.max_m,
     );
+    // mudar a cota do mar reflete instantaneamente — é só o shader (§7.2)
+    gl.uniform1f(this.uniforms.seaLevel, this.world.water.seaLevel_m);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.bindVertexArray(null);
+    gl.activeTexture(gl.TEXTURE0);
   }
 
   private uploadTile(tx: number, ty: number): void {
+    const raster = this.world.terrain.raster;
+    if (tx < 0 || ty < 0 || tx >= raster.tilesX || ty >= raster.tilesY) return;
+    this.uploadRegion(this.texture, tx, ty, raster.getTile(tx, ty) ?? this.baseTileData);
+  }
+
+  /** Sobe um tile (ou região parcial, na borda) para a textura dada. */
+  private uploadRegion(texture: WebGLTexture, tx: number, ty: number, data: Uint16Array): void {
     const gl = this.gl;
     const raster = this.world.terrain.raster;
     const T = raster.tileSize;
-    if (tx < 0 || ty < 0 || tx >= raster.tilesX || ty >= raster.tilesY) return;
-
     const x = tx * T;
     const y = ty * T;
     const w = Math.min(T, raster.widthCells - x);
     const h = Math.min(T, raster.heightCells - y);
-    const data = raster.getTile(tx, ty) ?? this.baseTileData;
 
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
     // O tile é 512 de largura; ROW_LENGTH permite subir região parcial na borda.
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, T);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RED_INTEGER, gl.UNSIGNED_SHORT, data);
