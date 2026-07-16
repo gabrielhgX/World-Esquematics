@@ -32,6 +32,7 @@ export * from './commands/waterCommands';
 export { RoadGraphCommand } from './commands/roadCommands';
 export * from './commands/vectorCommands';
 export * from './commands/biomeCommands';
+export { SetLayerPropertyCommand } from './commands/layerCommands';
 export * from './derived/roadGrade';
 export { BiomeRasterCache } from './derived/BiomeRasterCache';
 export * from './derived/scatter';

@@ -23,6 +23,7 @@ export class POITool implements Tool {
   constructor(private readonly ctx: ToolContext) {}
 
   onPointerDown(pt: Vec2, _mods: Modifiers): void {
+    if (this.ctx.world.pois.locked) return; // Outliner: camada travada
     this.ctx.bus.execute(
       new AddPOICommand({
         id: newId(),

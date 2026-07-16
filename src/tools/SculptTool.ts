@@ -59,6 +59,7 @@ export class SculptTool implements Tool {
   constructor(private readonly ctx: ToolContext) {}
 
   onPointerDown(pt: Vec2, _mods: Modifiers): void {
+    if (this.ctx.world.terrain.locked) return; // Outliner: camada travada
     this.stroking = true;
     if (this.brush.mode === 'flatten') {
       const range = this.ctx.world.config.heightRange;

@@ -35,6 +35,7 @@ export class ObjectTool implements Tool {
   constructor(private readonly ctx: ToolContext) {}
 
   onPointerDown(pt: Vec2, _mods: Modifiers): void {
+    if (this.ctx.world.objects.locked) return; // Outliner: camada travada
     this.ctx.bus.execute(
       new AddObjectCommand({
         id: newId(),

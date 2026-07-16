@@ -28,6 +28,7 @@ export class BiomeTool implements Tool {
   constructor(private readonly ctx: ToolContext) {}
 
   onPointerDown(pt: Vec2, _mods: Modifiers): void {
+    if (this.ctx.world.biomes.locked) return; // Outliner: camada travada
     this.vertices.push([pt.x, pt.y]);
   }
 

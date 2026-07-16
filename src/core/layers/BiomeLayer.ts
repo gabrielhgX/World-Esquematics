@@ -112,6 +112,12 @@ export class BiomeLayer implements Layer {
     return this.palette.find((b) => b.id === biomeId);
   }
 
+  /** [Command/loader] substitui a paleta inteira (edição de paleta, load). */
+  setPalette(palette: BiomeDefinition[]): void {
+    this.palette.splice(0, this.palette.length, ...palette);
+    this._version++;
+  }
+
   /** [Command] pinta um polígono de bioma (ordem = ordem de pintura). */
   addPolygon(polygon: BiomePolygon): void {
     this.items.push(polygon);

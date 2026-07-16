@@ -34,6 +34,7 @@ export class RoadTool implements Tool {
   constructor(private readonly ctx: ToolContext) {}
 
   onPointerDown(pt: Vec2, _mods: Modifiers): void {
+    if (this.ctx.world.roads.locked) return; // Outliner: camada travada
     const snapped = this.snapNode(pt);
     this.draft.begin(snapped ? snapped.pos : pt, snapped?.id ?? null);
   }

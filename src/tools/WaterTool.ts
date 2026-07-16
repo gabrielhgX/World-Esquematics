@@ -52,6 +52,7 @@ export class WaterTool implements Tool {
   constructor(private readonly ctx: ToolContext) {}
 
   onPointerDown(pt: Vec2, _mods: Modifiers): void {
+    if (this.ctx.world.water.locked) return; // Outliner: camada travada
     if (this.settings.mode === 'lake') {
       this.fillLake(pt);
     } else {
