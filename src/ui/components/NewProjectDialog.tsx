@@ -8,6 +8,8 @@ import {
   verticalPrecision_m,
   type WorldConfig,
 } from '../../core';
+import { EXAMPLE_WORLDS } from '../../examples/exampleWorlds';
+import type { ProjectSummary } from '../../platform/ProjectRepository';
 
 /**
  * Criação de projeto (README §1.1): o usuário escolhe extensão e resolução;
@@ -18,11 +20,26 @@ import {
 interface Props {
   onCreate: (config: WorldConfig) => void;
   onOpenFile?: (file: File) => Promise<void>;
+  /** projetos do repositório da plataforma (§10.2) */
+  projects?: ProjectSummary[];
+  onOpenStored?: (id: string) => Promise<void>;
+  onDeleteStored?: (id: string) => Promise<void>;
+  /** mapas de exemplo do onboarding (item 33) */
+  onOpenExample?: (id: string) => void;
   autosave?: { projectName: string; savedAt: number } | null;
   onRestoreAutosave?: () => Promise<void>;
 }
 
-export function NewProjectDialog({ onCreate, onOpenFile, autosave, onRestoreAutosave }: Props) {
+export function NewProjectDialog({
+  onCreate,
+  onOpenFile,
+  projects = [],
+  onOpenStored,
+  onDeleteStored,
+  onOpenExample,
+  autosave,
+  onRestoreAutosave,
+}: Props) {
   const [projectName, setProjectName] = useState('Novo mundo');
   const [widthKm, setWidthKm] = useState('16');
   const [heightKm, setHeightKm] = useState('16');
@@ -137,6 +154,57 @@ export function NewProjectDialog({ onCreate, onOpenFile, autosave, onRestoreAuto
         <button type="submit" disabled={hasErrors}>
           Criar projeto
         </button>
+
+        {projects.length > 0 && onOpenStored && (
+          <section className="project-list" data-testid="my-projects">
+            <h2>Meus projetos</h2>
+            <ul>
+              {projects.map((project) => (
+                <li key={project.id}>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => void onOpenStored(project.id)}
+                    title={`${(project.size / 1000).toFixed(0)} kB`}
+                  >
+                    {project.name}
+                  </button>
+                  <span className="dimmed">{new Date(project.savedAt).toLocaleString()}</span>
+                  {onDeleteStored && (
+                    <button
+                      type="button"
+                      className="link-btn danger"
+                      onClick={() => void onDeleteStored(project.id)}
+                      title="Excluir projeto"
+                    >
+                      ×
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {onOpenExample && (
+          <section className="project-list">
+            <h2>Mapas de exemplo</h2>
+            <ul>
+              {EXAMPLE_WORLDS.map((example) => (
+                <li key={example.id}>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => onOpenExample(example.id)}
+                  >
+                    {example.name}
+                  </button>
+                  <span className="dimmed">{example.description}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <div className="dialog-secondary">
           {onOpenFile && (

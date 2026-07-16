@@ -5,9 +5,11 @@ import { formatMeters } from '../../render/format';
 interface Props {
   world: WorldData;
   cursor: Vec2 | null;
+  /** plano da licença ativa (README §10.2) — ex.: "assinatura web · offline" */
+  licenseLabel?: string;
 }
 
-export function StatusBar({ world, cursor }: Props) {
+export function StatusBar({ world, cursor, licenseLabel }: Props) {
   const grid = deriveGrid(world.config);
   const megabytes = estimateTerrainBytes(world.config) / 1_000_000;
 
@@ -27,6 +29,11 @@ export function StatusBar({ world, cursor }: Props) {
         grid {grid.widthCells} × {grid.heightCells} @ {world.config.terrainResolution_m} m/célula
       </span>
       <span>heightmap ≈ {megabytes.toFixed(0)} MB</span>
+      {licenseLabel && (
+        <span className="license-badge" data-testid="license-badge">
+          {licenseLabel}
+        </span>
+      )}
       <span className="status-cursor">{cursorText}</span>
     </footer>
   );

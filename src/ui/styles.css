@@ -163,6 +163,7 @@ body {
 /* ---- outliner ---- */
 
 .main-row {
+  position: relative; /* âncora do onboarding */
   display: flex;
   flex: 1;
   min-height: 0;
@@ -403,4 +404,102 @@ body {
   background: #3a3d42;
   color: #7a7f86;
   cursor: not-allowed;
+}
+
+/* ---- tela inicial: meus projetos + exemplos ---- */
+
+.project-list h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #9aa0a6;
+}
+
+.project-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.project-list .link-btn {
+  font-size: 13px !important;
+}
+
+.project-list .danger {
+  margin-left: auto;
+  color: #e07a7a !important;
+}
+
+.license-blocked p {
+  margin: 0;
+  color: #e0b07a;
+}
+
+/* ---- barra de status: licença ---- */
+
+.license-badge {
+  padding: 1px 8px;
+  border: 1px solid #3a3d42;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+/* ---- onboarding ---- */
+
+.onboarding {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 300px;
+  padding: 12px 14px;
+  background: rgba(35, 37, 40, 0.95);
+  border: 1px solid #3a3d42;
+  border-radius: 10px;
+  font-size: 12px;
+  user-select: none;
+}
+
+.onboarding header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.onboarding ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.onboarding li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.onboarding li.done {
+  color: #6a6f75;
+  text-decoration: line-through;
+}
+
+.onboarding .check {
+  color: #7ab07a;
+}
+
+.onboarding em {
+  color: #7a7f86;
 }

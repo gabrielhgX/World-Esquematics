@@ -37,10 +37,14 @@ interface Props {
   onBiomeSettingsChange: (settings: BiomeSettings) => void;
   objectSettings: ObjectSettings;
   onObjectSettingsChange: (settings: ObjectSettings) => void;
-  /** salva o projeto (.wmap) — o App captura o thumbnail do viewport */
+  /** salva no repositório da plataforma (IndexedDB/filesystem — §10.2) */
   onSaveProject: () => Promise<void>;
+  /** baixa o .wmap portátil */
+  onDownloadProject: () => Promise<void>;
   /** abre um .wmap escolhido pelo usuário */
   onOpenProject: (file: File) => Promise<void>;
+  /** avisa o App que um export Unreal concluiu (onboarding/telemetria) */
+  onExportedUnreal: () => void;
   /** muda a cada comando/undo/redo — mantém os botões sincronizados */
   historyTick: number;
 }
@@ -76,18 +80,23 @@ export function Toolbar({
   objectSettings,
   onObjectSettingsChange,
   onSaveProject,
+  onDownloadProject,
   onOpenProject,
+  onExportedUnreal,
   historyTick,
 }: Props) {
   const { history, bus } = session;
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await onSaveProject();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } finally {
       setSaving(false);
     }
@@ -113,6 +122,7 @@ export function Toolbar({
       if (messages.length > 0) {
         alert(`Exportado para Unreal.\n${messages.map((m) => `• ${m}`).join('\n')}`);
       }
+      onExportedUnreal();
     } finally {
       setExporting(false);
     }
@@ -168,8 +178,11 @@ export function Toolbar({
       {activeTool === 'measure' && <MeasureControls />}
 
       <div className="tool-group toolbar-right">
-        <button onClick={handleSave} disabled={saving} title="Salvar projeto (.wmap)">
-          {saving ? 'Salvando…' : 'Salvar'}
+        <button onClick={handleSave} disabled={saving} title="Salvar no navegador (§10.2)">
+          {saving ? 'Salvando…' : saved ? 'Salvo ✓' : 'Salvar'}
+        </button>
+        <button onClick={() => void onDownloadProject()} title="Baixar o arquivo .wmap portátil">
+          Baixar
         </button>
         <button onClick={() => fileInputRef.current?.click()} title="Abrir projeto (.wmap)">
           Abrir
