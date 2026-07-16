@@ -38,7 +38,7 @@ export class RoadLayer implements Layer {
   visible = true;
   locked = false;
   opacity = 1;
-  order = 2;
+  order = 3;
 
   private readonly nodeMap = new Map<string, RoadNode>();
   private readonly edgeMap = new Map<string, RoadEdge>();

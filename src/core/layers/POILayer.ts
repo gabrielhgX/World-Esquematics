@@ -19,7 +19,7 @@ export class POILayer implements Layer {
   visible = true;
   locked = false;
   opacity = 1;
-  order = 4;
+  order = 5;
 
   private readonly items: POI[] = [];
   private _version = 0;

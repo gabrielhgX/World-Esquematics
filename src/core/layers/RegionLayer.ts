@@ -20,7 +20,7 @@ export class RegionLayer implements Layer {
   visible = true;
   locked = false;
   opacity = 1;
-  order = 3;
+  order = 4;
 
   private readonly items: Region[] = [];
   private _version = 0;

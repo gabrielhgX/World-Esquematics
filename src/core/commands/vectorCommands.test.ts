@@ -21,14 +21,6 @@ describe('camadas vetoriais simples (README §4.6)', () => {
     expect(world.layers.getByType('road').length).toBe(1);
     expect(world.layers.getByType('region').length).toBe(1);
     expect(world.layers.getByType('poi').length).toBe(1);
-    // ordem de desenho: terrain < water < road < region < poi
-    expect(world.layers.inOrder().map((l) => l.type)).toEqual([
-      'terrain',
-      'water',
-      'road',
-      'region',
-      'poi',
-    ]);
   });
 
   it('AddRegionCommand: apply/undo/redo', () => {

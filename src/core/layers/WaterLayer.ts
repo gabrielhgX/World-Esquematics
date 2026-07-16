@@ -47,7 +47,7 @@ export class WaterLayer implements Layer {
   visible = true;
   locked = false;
   opacity = 1;
-  order = 1;
+  order = 2;
 
   /** nível do mar global (README §7.2): um WaterBody kind ocean, uma cota */
   readonly ocean: WaterBody;
