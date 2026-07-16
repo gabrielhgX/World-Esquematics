@@ -1,35 +1,30 @@
-import {
-  deriveGrid,
-  resampleBicubicU16,
-  type ValidationIssue,
-  type WorldData,
-} from '../../../core';
-import type { ExportBundle, Exporter } from '../Exporter';
+import { deriveGrid, type ValidationIssue, type WorldData } from '../../../core';
+import { encodeGrayPng8 } from '../../png/png';
+import type { ExportBundle, ExportFile, Exporter } from '../Exporter';
+import { buildLandscapePlan } from './heightmap';
+import { computeBiomeWeightmaps } from './biomeWeights';
+import { exportManualObjects, exportScatterCsv, SCATTER_CSV_HEADER } from './unrealObjects';
+import { exportMetadata, exportRoadSplines, exportWater } from './unrealVectors';
 import { nearestLandscapeSize, UNREAL_LANDSCAPE_SIZES } from './landscapeSizes';
 
 /**
- * Exportador Unreal mínimo — "feio mas funcional" (README §11, ordem 0→1→6):
- * só o heightmap, para pagar cedo os três gotchas do §9.1.
+ * Exportador Unreal COMPLETO (README §9.1, Fase 6):
  *
- * Gotcha #1 — resolução travada: reamostra (bicúbico) o grid para o tamanho
- *   válido mais próximo da tabela do Landscape e informa o usuário.
+ * | heightmap.r16             | uint16 LE, linha 0 = norte (gotchas #1–#3) |
+ * | weightmaps/<bioma>.png    | 1 PNG 8-bit por bioma, com feather (§4.4)  |
+ * | objects.json              | objetos manuais (fidelidade total)         |
+ * | scatter.csv               | vegetação materializada (type,x,y,z,yaw,s) |
+ * | splines.json              | grafo de estradas → Landscape Splines      |
+ * | water.json                | mar/lagos/rios com cotas (Water Body)      |
+ * | metadata.json             | regiões e POIs                             |
+ * | unreal_import.json        | manifest que o plugin importador lê        |
  *
- * Gotcha #2 — escala Z: com Landscape ZScale = 100, o uint16 mapeia para
- *   ±256 m (512 m totais). Para um heightRange de S metros:
- *     ZScale     = S / 512 × 100
- *     LocationZ  = min_m + 256 × (ZScale / 100)   [metros → ×100 em UE units]
- *   Verificação: h16=0 → min_m; h16=65535 → max_m. Fórmula a confirmar na
- *   doc da versão alvo (README §9.1) quando o plugin importador (Fase 6)
- *   fechar a versão da engine.
- *
- * Gotcha #3 — eixos: nosso espaço canônico é Z-up DESTRO (X=Leste, Y=Norte);
- *   a Unreal é Z-up CANHOTA. A conversão é uma inversão de eixo: o heightmap
- *   sai com a LINHA 0 = NORTE (flip vertical do raster, cuja linha 0 é o
- *   sul). Validado pelo teste do mapa "L" assimétrico.
+ * Nenhum exportador influencia o modelo de dados (D1): tudo aqui LÊ o
+ * WorldData e escreve arquivos.
  */
 export class UnrealExporter implements Exporter {
   readonly id = 'unreal5';
-  readonly displayName = 'Unreal Engine 5 (heightmap)';
+  readonly displayName = 'Unreal Engine 5';
 
   validate(world: WorldData): ValidationIssue[] {
     const issues: ValidationIssue[] = [];
@@ -52,91 +47,133 @@ export class UnrealExporter implements Exporter {
         message: 'Mundo não quadrado: confira o suporte a Landscape retangular na engine alvo.',
       });
     }
+    for (const river of world.water.rivers) {
+      for (let i = 1; i < river.nodes.length; i++) {
+        if (river.nodes[i].surface_m > river.nodes[i - 1].surface_m) {
+          issues.push({
+            severity: 'warning',
+            message: `Rio ${river.id}: cota sobe ao longo do fluxo — confira antes de importar.`,
+          });
+          break;
+        }
+      }
+    }
     return issues;
   }
 
-  export(world: WorldData): Promise<ExportBundle> {
+  async export(world: WorldData): Promise<ExportBundle> {
     const { config } = world;
-    const raster = world.terrain.raster;
-    const grid = deriveGrid(config);
-    const dstW = nearestLandscapeSize(grid.widthCells);
-    const dstH = nearestLandscapeSize(grid.heightCells);
+    const encoder = new TextEncoder();
+    const json = (value: unknown) => encoder.encode(JSON.stringify(value, null, 2));
     const notes: string[] = [];
+    const files: ExportFile[] = [];
 
-    // 1. Materializa e reamostra para a resolução válida (gotcha #1).
-    const dense = raster.toDense((n) => new Uint16Array(n));
-    const resampled =
-      dstW === raster.widthCells && dstH === raster.heightCells
-        ? dense
-        : resampleBicubicU16(dense, raster.widthCells, raster.heightCells, dstW, dstH);
-    if (resampled !== dense) {
-      notes.push(`Grid ${grid.widthCells}×${grid.heightCells} reamostrado para ${dstW}×${dstH}.`);
+    // 1. Landscape (heightmap + escalas — gotchas #1–#3)
+    const landscape = buildLandscapePlan(world);
+    files.push({ path: 'heightmap.r16', data: landscape.r16 });
+    if (landscape.resampled) {
+      const grid = deriveGrid(config);
+      notes.push(
+        `Grid ${grid.widthCells}×${grid.heightCells} reamostrado para ` +
+          `${landscape.resolutionX}×${landscape.resolutionY}.`,
+      );
+    }
+    notes.push(
+      `Landscape ${landscape.resolutionX}×${landscape.resolutionY} · ` +
+        `ZScale ${landscape.scale.z.toFixed(2)} · ` +
+        `LocationZ ${(landscape.location.z / 100).toFixed(1)} m · ` +
+        `escala XY ${(landscape.scale.x / 100).toFixed(2)} m/quad.`,
+    );
+
+    // 2. Weightmaps (1 PNG 8-bit por bioma, feather aplicado)
+    const weightmaps = computeBiomeWeightmaps(world, landscape.resolutionX, landscape.resolutionY);
+    const weightmapIndex = [];
+    for (const { biome, pixels } of weightmaps) {
+      const file = `weightmaps/${safeName(biome.name)}.png`;
+      files.push({
+        path: file,
+        data: await encodeGrayPng8(pixels, landscape.resolutionX, landscape.resolutionY),
+      });
+      weightmapIndex.push({
+        biomeId: biome.id,
+        name: biome.name,
+        file,
+        materials: biome.materials,
+      });
     }
 
-    // 2. Escreve o .r16 (uint16 little-endian) com flip vertical:
-    //    linha 0 da imagem = NORTE (gotcha #3, destro → canhoto).
-    const bytes = new Uint8Array(dstW * dstH * 2);
-    const view = new DataView(bytes.buffer);
-    for (let row = 0; row < dstH; row++) {
-      const sourceRow = dstH - 1 - row;
-      for (let col = 0; col < dstW; col++) {
-        view.setUint16((row * dstW + col) * 2, resampled[sourceRow * dstW + col], true);
-      }
+    // 3. Objetos manuais + vegetação materializada (determinística)
+    const manualObjects = exportManualObjects(world);
+    const scatter = exportScatterCsv(world);
+    files.push({
+      path: 'objects.json',
+      data: json({ format: 'uu; yaw canhoto; z = terreno + z_offset', objects: manualObjects }),
+    });
+    files.push({ path: 'scatter.csv', data: encoder.encode(scatter.csv) });
+    if (scatter.count > 0) {
+      notes.push(`${scatter.count} instâncias de vegetação materializadas em scatter.csv.`);
     }
 
-    // 3. Escalas do Landscape (gotcha #2). XY: espaçamento entre vértices em
-    //    cm (escala 100 = 1 m por quad). Z: range mapeado nos ±256 m padrão.
-    const span_m = config.heightRange.max_m - config.heightRange.min_m;
-    const zScale = (span_m / 512) * 100;
-    const locationZ_m = config.heightRange.min_m + 256 * (zScale / 100);
-    const scaleX = (config.extent.width_m / (dstW - 1)) * 100;
-    const scaleY = (config.extent.height_m / (dstH - 1)) * 100;
+    // 4. Estradas, água, regiões/POIs
+    const roads = exportRoadSplines(world);
+    files.push({ path: 'splines.json', data: json(roads) });
+    files.push({ path: 'water.json', data: json(exportWater(world)) });
+    files.push({ path: 'metadata.json', data: json(exportMetadata(world)) });
 
-    const importManifest = {
+    // 5. Manifest para o plugin importador
+    const manifest = {
       exporter: this.id,
-      formatVersion: 1,
-      engineNote:
-        'Valores para o Landscape padrão (ZScale 100 ≙ ±256 m; escala 100 ≙ 1 m/quad). ' +
-        'Confirmar tabela de resoluções e fórmula do ZScale na doc da versão exata da ' +
-        'engine alvo (README §9.1).',
+      formatVersion: 2,
       source: {
         projectName: config.projectName,
         extent_m: config.extent,
         terrainResolution_m: config.terrainResolution_m,
         heightRange_m: config.heightRange,
-        grid,
       },
       landscape: {
         heightmapFile: 'heightmap.r16',
         heightmapFormat: 'uint16 little-endian, linhas norte→sul, colunas oeste→leste',
-        resolutionX: dstW,
-        resolutionY: dstH,
-        scale: { x: scaleX, y: scaleY, z: zScale },
-        location: { x: 0, y: 0, z: locationZ_m * 100 }, // UE units (cm)
+        resolutionX: landscape.resolutionX,
+        resolutionY: landscape.resolutionY,
+        scale: landscape.scale,
+        location: landscape.location,
       },
+      weightmaps: weightmapIndex,
+      files: {
+        objects: 'objects.json',
+        scatter: 'scatter.csv',
+        splines: 'splines.json',
+        water: 'water.json',
+        metadata: 'metadata.json',
+      },
+      counts: {
+        manualObjects: manualObjects.length,
+        scatterInstances: scatter.count,
+        roadSplines: roads.splines.length,
+        lakes: world.water.lakes.length,
+        rivers: world.water.rivers.length,
+        regions: world.regions.regions.length,
+        pois: world.pois.pois.length,
+      },
+      scatterCsvHeader: SCATTER_CSV_HEADER,
       axes: {
         canonical: 'X=Leste, Y=Norte, Z=Cima (destro) — README D10',
         conversion:
-          'Unreal é Z-up canhoto: heightmap exportado com flip vertical ' +
-          '(linha 0 = norte). Validado com o mapa "L" assimétrico.',
+          'Unreal é Z-up canhoto: flip do eixo N-S (linha 0 do heightmap = norte; ' +
+          'y_uu = (extentNS − y)·100) e yaw com sinal invertido. ' +
+          'Validado com o mapa "L" assimétrico.',
       },
+      engineNote:
+        'Valores para o Landscape padrão (ZScale 100 ≙ ±256 m; escala 100 ≙ 1 m/quad). ' +
+        'Confirmar tabela de resoluções e fórmula do ZScale na doc da versão exata da ' +
+        'engine alvo (README §9.1).',
     };
+    files.push({ path: 'unreal_import.json', data: json(manifest) });
 
-    notes.push(
-      `Landscape ${dstW}×${dstH} · ZScale ${zScale.toFixed(2)} · ` +
-        `LocationZ ${locationZ_m.toFixed(1)} m · escala XY ${(scaleX / 100).toFixed(2)} m/quad.`,
-    );
-
-    const encoder = new TextEncoder();
-    return Promise.resolve({
-      files: [
-        { path: 'heightmap.r16', data: bytes },
-        {
-          path: 'unreal_import.json',
-          data: encoder.encode(JSON.stringify(importManifest, null, 2)),
-        },
-      ],
-      notes,
-    });
+    return { files, notes };
   }
+}
+
+function safeName(name: string): string {
+  return name.replace(/[^\p{L}\p{N}_-]+/gu, '_');
 }
