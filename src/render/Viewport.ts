@@ -1,10 +1,18 @@
-import { ContourCache, WaterSurfaceCache, deriveGrid, type WorldData } from '../core';
+import {
+  BiomeRasterCache,
+  ContourCache,
+  WaterSurfaceCache,
+  deriveGrid,
+  type WorldData,
+} from '../core';
 import { Camera2D, type Vec2 } from './Camera2D';
 import { WebGLRenderer } from './webgl/WebGLRenderer';
 import { RulerOverlay } from './canvas2d/RulerOverlay';
 import { ContourOverlay } from './canvas2d/ContourOverlay';
 import { WaterOverlay } from './canvas2d/WaterOverlay';
 import { VectorOverlay } from './canvas2d/VectorOverlay';
+import { ObjectOverlay } from './canvas2d/ObjectOverlay';
+import { ScatterTileCache } from './ScatterTileCache';
 import type { Modifiers, Tool } from '../tools/Tool';
 
 /**
@@ -38,6 +46,9 @@ export class Viewport {
   private readonly waterCache: WaterSurfaceCache;
   private readonly waterOverlay: WaterOverlay;
   private readonly vectorOverlay: VectorOverlay;
+  private readonly biomeCache: BiomeRasterCache;
+  private readonly scatterCache: ScatterTileCache;
+  private readonly objectOverlay: ObjectOverlay;
   private readonly resizeObserver: ResizeObserver;
   private readonly abort = new AbortController();
 
@@ -77,6 +88,13 @@ export class Viewport {
     );
     this.waterOverlay = new WaterOverlay(world);
     this.vectorOverlay = new VectorOverlay(world);
+    this.biomeCache = new BiomeRasterCache(
+      grid.widthCells,
+      grid.heightCells,
+      world.config.terrainResolution_m,
+    );
+    this.scatterCache = new ScatterTileCache(world, this.biomeCache);
+    this.objectOverlay = new ObjectOverlay(world, this.scatterCache);
 
     this.bindInput();
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
@@ -111,16 +129,24 @@ export class Viewport {
   }
 
   private render(): void {
-    // Consumidor único dos dirty tiles: GPU + cache de contornos (README §2).
+    // Consumidor único dos dirty tiles: GPU + caches derivados (README §2).
     const dirty = this.world.terrain.raster.consumeDirty();
     if (dirty.length > 0) {
       this.renderer.updateTiles(dirty);
       this.contourCache.invalidate(dirty);
+      this.scatterCache.invalidate(dirty); // declividade mudou onde esculpiu
     }
     // superfície d'água derivada: sincroniza se a WaterLayer mudou de versão
     const dirtyWater = this.waterCache.sync(this.world.water);
     if (dirtyWater.length > 0) {
       this.renderer.updateWaterTiles(dirtyWater, this.waterCache.surfaceRaster);
+    }
+    // raster de biomas derivado (polígono fonte — §4.4) + paleta + scatter
+    const dirtyBiome = this.biomeCache.sync(this.world.biomes);
+    if (dirtyBiome.length > 0) {
+      this.renderer.updateBiomeTiles(dirtyBiome, this.biomeCache.biomeRaster);
+      this.renderer.updateBiomePalette(this.world.biomes.palette);
+      this.scatterCache.clear();
     }
 
     this.renderer.render(this.camera);
@@ -130,8 +156,9 @@ export class Viewport {
     ctx.clearRect(0, 0, this.cssWidth, this.cssHeight);
     this.contours.draw(ctx, this.camera);
     this.waterOverlay.draw(ctx, this.camera);
-    // ordem do §6: estradas (5) → regiões (6) → POIs (7)
+    // ordem do §6: estradas (5) → regiões (6) → objetos (7)
     this.vectorOverlay.draw(ctx, this.camera);
+    this.objectOverlay.draw(ctx, this.camera);
     this.activeTool?.drawOverlay(ctx);
     this.ruler.draw(ctx, this.camera, this.cssWidth, this.cssHeight);
   }

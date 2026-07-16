@@ -5,6 +5,8 @@ import { DEFAULT_WATER_SETTINGS, type WaterSettings } from '../tools/WaterTool';
 import { DEFAULT_ROAD_SETTINGS, type RoadSettings } from '../tools/RoadTool';
 import { DEFAULT_REGION_SETTINGS, type RegionSettings } from '../tools/RegionTool';
 import { DEFAULT_POI_SETTINGS, type POISettings } from '../tools/POITool';
+import { DEFAULT_BIOME_SETTINGS, type BiomeSettings } from '../tools/BiomeTool';
+import { DEFAULT_OBJECT_SETTINGS, type ObjectSettings } from '../tools/ObjectTool';
 import { NewProjectDialog } from './components/NewProjectDialog';
 import { ViewportView } from './components/ViewportView';
 import { StatusBar } from './components/StatusBar';
@@ -24,6 +26,10 @@ export default function App() {
     ...DEFAULT_REGION_SETTINGS,
   });
   const [poiSettings, setPOISettings] = useState<POISettings>({ ...DEFAULT_POI_SETTINGS });
+  const [biomeSettings, setBiomeSettings] = useState<BiomeSettings>({ ...DEFAULT_BIOME_SETTINGS });
+  const [objectSettings, setObjectSettings] = useState<ObjectSettings>({
+    ...DEFAULT_OBJECT_SETTINGS,
+  });
   const [historyTick, setHistoryTick] = useState(0);
 
   // Undo/redo por teclado + botões sempre em dia com o histórico.
@@ -76,6 +82,10 @@ export default function App() {
         onRegionSettingsChange={setRegionSettings}
         poiSettings={poiSettings}
         onPOISettingsChange={setPOISettings}
+        biomeSettings={biomeSettings}
+        onBiomeSettingsChange={setBiomeSettings}
+        objectSettings={objectSettings}
+        onObjectSettingsChange={setObjectSettings}
         historyTick={historyTick}
       />
       <ViewportView
@@ -86,6 +96,8 @@ export default function App() {
         roadSettings={roadSettings}
         regionSettings={regionSettings}
         poiSettings={poiSettings}
+        biomeSettings={biomeSettings}
+        objectSettings={objectSettings}
         onCursorMove={setCursor}
       />
       <StatusBar world={session.world} cursor={cursor} />

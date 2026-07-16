@@ -7,6 +7,8 @@ import { WaterTool, type WaterSettings } from '../../tools/WaterTool';
 import { RoadTool, type RoadSettings } from '../../tools/RoadTool';
 import { RegionTool, type RegionSettings } from '../../tools/RegionTool';
 import { POITool, type POISettings } from '../../tools/POITool';
+import { BiomeTool, type BiomeSettings } from '../../tools/BiomeTool';
+import { ObjectTool, type ObjectSettings } from '../../tools/ObjectTool';
 import { MeasureTool } from '../../tools/MeasureTool';
 import type { ProjectSession } from '../session';
 import type { ActiveToolName } from './Toolbar';
@@ -19,6 +21,8 @@ interface Props {
   roadSettings: RoadSettings;
   regionSettings: RegionSettings;
   poiSettings: POISettings;
+  biomeSettings: BiomeSettings;
+  objectSettings: ObjectSettings;
   onCursorMove?: (worldPt: Vec2 | null) => void;
 }
 
@@ -28,6 +32,8 @@ interface ToolSet {
   road: RoadTool;
   region: RegionTool;
   poi: POITool;
+  biome: BiomeTool;
+  object: ObjectTool;
   measure: MeasureTool;
 }
 
@@ -40,6 +46,8 @@ export function ViewportView({
   roadSettings,
   regionSettings,
   poiSettings,
+  biomeSettings,
+  objectSettings,
   onCursorMove,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -68,6 +76,8 @@ export function ViewportView({
       road: new RoadTool(toolContext),
       region: new RegionTool(toolContext),
       poi: new POITool(toolContext),
+      biome: new BiomeTool(toolContext),
+      object: new ObjectTool(toolContext),
       measure: new MeasureTool(toolContext),
     };
 
@@ -95,6 +105,8 @@ export function ViewportView({
       road: tools?.road ?? null,
       region: tools?.region ?? null,
       poi: tools?.poi ?? null,
+      biome: tools?.biome ?? null,
+      object: tools?.object ?? null,
       measure: tools?.measure ?? null,
     };
     viewportRef.current?.setTool(byName[activeTool]);
@@ -115,6 +127,12 @@ export function ViewportView({
   useEffect(() => {
     if (toolsRef.current) toolsRef.current.poi.settings = poiSettings;
   }, [poiSettings, session]);
+  useEffect(() => {
+    if (toolsRef.current) toolsRef.current.biome.settings = biomeSettings;
+  }, [biomeSettings, session]);
+  useEffect(() => {
+    if (toolsRef.current) toolsRef.current.object.settings = objectSettings;
+  }, [objectSettings, session]);
 
   return <div className="viewport-host" ref={hostRef} />;
 }

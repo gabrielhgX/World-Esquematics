@@ -35,6 +35,15 @@ export class WebGLRenderer {
     if (dirtyKeys.length > 0) this.terrain.updateWaterTiles(dirtyKeys, waterRaster);
   }
 
+  /** Reenvia os tiles sujos do raster derivado de biomas + a paleta. */
+  updateBiomeTiles(dirtyKeys: TileKey[], biomeRaster: TiledRaster<Uint8Array>): void {
+    if (dirtyKeys.length > 0) this.terrain.updateBiomeTiles(dirtyKeys, biomeRaster);
+  }
+
+  updateBiomePalette(palette: WorldData['biomes']['palette']): void {
+    this.terrain.updateBiomePalette(palette);
+  }
+
   render(camera: Camera2D): void {
     const gl = this.gl;
     gl.clearColor(0.15, 0.16, 0.18, 1);

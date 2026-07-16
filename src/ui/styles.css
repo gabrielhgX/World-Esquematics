@@ -146,6 +146,14 @@ body {
   cursor: pointer;
 }
 
+.biome-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid #3a3d42;
+  display: inline-block;
+}
+
 .hint {
   font-size: 11px;
   color: #7a7f86;

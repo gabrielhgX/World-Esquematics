@@ -6,14 +6,18 @@ import type { WaterSettings } from '../../tools/WaterTool';
 import type { RoadSettings } from '../../tools/RoadTool';
 import type { RegionSettings } from '../../tools/RegionTool';
 import type { POISettings } from '../../tools/POITool';
+import type { BiomeSettings } from '../../tools/BiomeTool';
+import type { ObjectSettings } from '../../tools/ObjectTool';
 import { downloadBytes } from '../download';
 import type { ProjectSession } from '../session';
 import { SculptControls } from './SculptControls';
 import { WaterControls } from './WaterControls';
 import { RoadControls } from './RoadControls';
 import { MeasureControls, POIControls, RegionControls } from './VectorControls';
+import { BiomeControls, ObjectControls } from './BiomeObjectControls';
 
-export type ActiveToolName = 'pan' | 'sculpt' | 'water' | 'road' | 'region' | 'poi' | 'measure';
+export type ActiveToolName =
+  'pan' | 'sculpt' | 'water' | 'road' | 'biome' | 'object' | 'region' | 'poi' | 'measure';
 
 interface Props {
   session: ProjectSession;
@@ -29,6 +33,10 @@ interface Props {
   onRegionSettingsChange: (settings: RegionSettings) => void;
   poiSettings: POISettings;
   onPOISettingsChange: (settings: POISettings) => void;
+  biomeSettings: BiomeSettings;
+  onBiomeSettingsChange: (settings: BiomeSettings) => void;
+  objectSettings: ObjectSettings;
+  onObjectSettingsChange: (settings: ObjectSettings) => void;
   /** muda a cada comando/undo/redo — mantém os botões sincronizados */
   historyTick: number;
 }
@@ -38,6 +46,8 @@ const TOOL_BUTTONS: Array<{ id: ActiveToolName; label: string; title: string }> 
   { id: 'sculpt', label: 'Esculpir', title: 'Esculpir o relevo' },
   { id: 'water', label: 'Água', title: 'Água: lagos, rios e nível do mar' },
   { id: 'road', label: 'Estrada', title: 'Estradas: grafo planar de splines' },
+  { id: 'biome', label: 'Bioma', title: 'Pintar biomas por polígono' },
+  { id: 'object', label: 'Objeto', title: 'Objetos manuais' },
   { id: 'region', label: 'Região', title: 'Regiões nomeadas (polígonos)' },
   { id: 'poi', label: 'POI', title: 'Pontos de interesse' },
   { id: 'measure', label: 'Medir', title: 'Medição — não altera o mundo' },
@@ -57,6 +67,10 @@ export function Toolbar({
   onRegionSettingsChange,
   poiSettings,
   onPOISettingsChange,
+  biomeSettings,
+  onBiomeSettingsChange,
+  objectSettings,
+  onObjectSettingsChange,
   historyTick,
 }: Props) {
   const { history, bus } = session;
@@ -117,6 +131,16 @@ export function Toolbar({
           settings={roadSettings}
           onSettingsChange={onRoadSettingsChange}
         />
+      )}
+      {activeTool === 'biome' && (
+        <BiomeControls
+          palette={session.world.biomes.palette}
+          settings={biomeSettings}
+          onSettingsChange={onBiomeSettingsChange}
+        />
+      )}
+      {activeTool === 'object' && (
+        <ObjectControls settings={objectSettings} onSettingsChange={onObjectSettingsChange} />
       )}
       {activeTool === 'region' && (
         <RegionControls settings={regionSettings} onSettingsChange={onRegionSettingsChange} />

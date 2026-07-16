@@ -1,4 +1,4 @@
-import type { TiledRaster, WorldData } from '../../core';
+import type { BiomeDefinition, TiledRaster, WorldData } from '../../core';
 import { parseTileKey, type TileKey } from '../../core';
 import type { Camera2D } from '../Camera2D';
 import { createProgram } from './glUtils';
@@ -29,6 +29,8 @@ precision highp usampler2D;
 
 uniform usampler2D u_height;  // R16UI
 uniform usampler2D u_water;   // R16UI: cota u16 da superfície dos lagos, 0 = sem água
+uniform usampler2D u_biome;   // R8UI: id do bioma por célula, 0 = sem bioma
+uniform sampler2D u_palette;  // 256×1: cor de cada id de bioma
 uniform vec2 u_grid;          // células (largura, altura)
 uniform float u_res;          // metros por célula
 uniform vec2 u_range;         // heightRange (min_m, max_m)
@@ -88,6 +90,14 @@ void main() {
   float lambert = max(dot(n, sun), 0.0);
   vec3 color = ramp(h) * (0.4 + 0.6 * lambert);
 
+  // Biomas: paleta indexada com blend (README §6, passada 2).
+  ivec2 biomeIdx = ivec2(clamp(cell, vec2(0.0), u_grid - 1.0));
+  uint biomeId = texelFetch(u_biome, biomeIdx, 0).r;
+  if (biomeId > 0u) {
+    vec3 biomeColor = texelFetch(u_palette, ivec2(int(biomeId), 0), 0).rgb;
+    color = mix(color, biomeColor * (0.5 + 0.5 * lambert), 0.45);
+  }
+
   // Água por PROFUNDIDADE DERIVADA (README §4.3/§6, D8):
   // depth = surface − height, no shader. depth ≤ 0 → terra seca — a margem
   // se resolve sozinha; esculpir o relevo move a margem automaticamente.
@@ -123,10 +133,13 @@ export class TerrainRenderer {
     range: WebGLUniformLocation | null;
     seaLevel: WebGLUniformLocation | null;
   };
+  private readonly biomeTexture: WebGLTexture;
+  private readonly paletteTexture: WebGLTexture;
   /** buffer 512² reutilizado para regiões de tiles não alocados */
   private readonly baseTileData: Uint16Array;
   /** idem, zerado, para tiles d'água desalocados (0 = sem água) */
   private readonly zeroTileData: Uint16Array;
+  private readonly zeroTileDataU8: Uint8Array;
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
@@ -151,10 +164,12 @@ export class TerrainRenderer {
       range: gl.getUniformLocation(this.program, 'u_range'),
       seaLevel: gl.getUniformLocation(this.program, 'u_seaLevel'),
     };
-    // unidades de textura fixas: 0 = relevo, 1 = superfície d'água
+    // unidades de textura fixas: 0 = relevo, 1 = água, 2 = biomas, 3 = paleta
     gl.useProgram(this.program);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_height'), 0);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_water'), 1);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_biome'), 2);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_palette'), 3);
 
     // Quad da extensão do mundo em metros (triangle strip).
     const res = world.config.terrainResolution_m;
@@ -196,14 +211,61 @@ export class TerrainRenderer {
     this.waterTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.waterTexture);
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16UI, raster.widthCells, raster.heightCells);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    setNearestClamp(gl);
     for (let ty = 0; ty < raster.tilesY; ty++) {
       for (let tx = 0; tx < raster.tilesX; tx++) {
         this.uploadRegion(this.waterTexture, tx, ty, this.zeroTileData);
       }
+    }
+
+    // Textura de biomas (R8UI, mesma grade) + paleta indexada 256×1 (§4.4/§6).
+    this.zeroTileDataU8 = new Uint8Array(raster.tileSize * raster.tileSize);
+    this.biomeTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.biomeTexture);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, raster.widthCells, raster.heightCells);
+    setNearestClamp(gl);
+    for (let ty = 0; ty < raster.tilesY; ty++) {
+      for (let tx = 0; tx < raster.tilesX; tx++) {
+        this.uploadRegionU8(this.biomeTexture, tx, ty, this.zeroTileDataU8);
+      }
+    }
+    this.paletteTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 1);
+    setNearestClamp(gl);
+    this.updateBiomePalette(world.biomes.palette);
+  }
+
+  /** Reenvia a paleta de cores dos biomas (id → cor). */
+  updateBiomePalette(palette: readonly BiomeDefinition[]): void {
+    const gl = this.gl;
+    const data = new Uint8Array(256 * 4);
+    for (const biome of palette) {
+      if (biome.id < 0 || biome.id > 255) continue;
+      const hex = biome.color.replace('#', '');
+      data[biome.id * 4] = parseInt(hex.slice(0, 2), 16);
+      data[biome.id * 4 + 1] = parseInt(hex.slice(2, 4), 16);
+      data[biome.id * 4 + 2] = parseInt(hex.slice(4, 6), 16);
+      data[biome.id * 4 + 3] = 255;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
+  }
+
+  /** Reenvia tiles sujos do raster DERIVADO de biomas. */
+  updateBiomeTiles(dirtyKeys: TileKey[], biomeRaster: TiledRaster<Uint8Array>): void {
+    const raster = this.world.terrain.raster;
+    for (const key of dirtyKeys) {
+      const { tx, ty } = parseTileKey(key);
+      if (tx < 0 || ty < 0 || tx >= raster.tilesX || ty >= raster.tilesY) continue;
+      this.uploadRegionU8(
+        this.biomeTexture,
+        tx,
+        ty,
+        biomeRaster.getTile(tx, ty) ?? this.zeroTileDataU8,
+      );
     }
   }
 
@@ -238,6 +300,10 @@ export class TerrainRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.waterTexture);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.biomeTexture);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
 
     const raster = this.world.terrain.raster;
     const { width, height } = camera.viewportSize;
@@ -281,4 +347,29 @@ export class TerrainRenderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RED_INTEGER, gl.UNSIGNED_SHORT, data);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
   }
+
+  /** Idem, para tiles uint8 (raster de biomas). */
+  private uploadRegionU8(texture: WebGLTexture, tx: number, ty: number, data: Uint8Array): void {
+    const gl = this.gl;
+    const raster = this.world.terrain.raster;
+    const T = raster.tileSize;
+    const x = tx * T;
+    const y = ty * T;
+    const w = Math.min(T, raster.widthCells - x);
+    const h = Math.min(T, raster.heightCells - y);
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, T);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RED_INTEGER, gl.UNSIGNED_BYTE, data);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
+  }
+}
+
+function setNearestClamp(gl: WebGL2RenderingContext): void {
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
