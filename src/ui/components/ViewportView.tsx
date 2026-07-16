@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { Vec2 } from '../../render/Camera2D';
 import { Viewport } from '../../render/Viewport';
 import type { Tool } from '../../tools/Tool';
@@ -24,6 +24,8 @@ interface Props {
   biomeSettings: BiomeSettings;
   objectSettings: ObjectSettings;
   onCursorMove?: (worldPt: Vec2 | null) => void;
+  /** expõe o Viewport imperativo (captura de thumbnail no save) */
+  apiRef?: MutableRefObject<Viewport | null>;
 }
 
 interface ToolSet {
@@ -49,6 +51,7 @@ export function ViewportView({
   biomeSettings,
   objectSettings,
   onCursorMove,
+  apiRef,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<Viewport | null>(null);
@@ -62,6 +65,7 @@ export function ViewportView({
     const viewport = new Viewport(host, session.world);
     viewport.onCursorMove = (pt) => cursorCallback.current?.(pt);
     viewportRef.current = viewport;
+    if (apiRef) apiRef.current = viewport;
 
     const toolContext = {
       world: session.world,
@@ -91,6 +95,7 @@ export function ViewportView({
     return () => {
       unsubscribe.forEach((off) => off());
       viewportRef.current = null;
+      if (apiRef) apiRef.current = null;
       toolsRef.current = null;
       viewport.dispose();
     };

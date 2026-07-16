@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Vec2 } from '../render/Camera2D';
+import type { Viewport } from '../render/Viewport';
+import { loadWmap, saveWmap } from '../io/format/wmap';
 import { DEFAULT_BRUSH, type BrushSettings } from '../tools/SculptTool';
 import { DEFAULT_WATER_SETTINGS, type WaterSettings } from '../tools/WaterTool';
 import { DEFAULT_ROAD_SETTINGS, type RoadSettings } from '../tools/RoadTool';
@@ -7,11 +9,14 @@ import { DEFAULT_REGION_SETTINGS, type RegionSettings } from '../tools/RegionToo
 import { DEFAULT_POI_SETTINGS, type POISettings } from '../tools/POITool';
 import { DEFAULT_BIOME_SETTINGS, type BiomeSettings } from '../tools/BiomeTool';
 import { DEFAULT_OBJECT_SETTINGS, type ObjectSettings } from '../tools/ObjectTool';
+import { AUTOSAVE_INTERVAL_MS, readLatestAutosave, writeAutosave } from './autosave';
+import { downloadBytes } from './download';
 import { NewProjectDialog } from './components/NewProjectDialog';
+import { Outliner } from './components/Outliner';
 import { ViewportView } from './components/ViewportView';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar, type ActiveToolName } from './components/Toolbar';
-import { createProjectSession, type ProjectSession } from './session';
+import { createProjectSession, createSessionFromWorld, type ProjectSession } from './session';
 
 export default function App() {
   const [session, setSession] = useState<ProjectSession | null>(null);
@@ -31,6 +36,13 @@ export default function App() {
     ...DEFAULT_OBJECT_SETTINGS,
   });
   const [historyTick, setHistoryTick] = useState(0);
+  const [autosaveInfo, setAutosaveInfo] = useState<{ projectName: string; savedAt: number } | null>(
+    null,
+  );
+  const viewportRef = useRef<Viewport | null>(null);
+  const lastAutosavedTick = useRef(0);
+  const historyTickRef = useRef(0);
+  historyTickRef.current = historyTick;
 
   // Undo/redo por teclado + botões sempre em dia com o histórico.
   useEffect(() => {
@@ -62,8 +74,62 @@ export default function App() {
     };
   }, [session]);
 
+  // Autosave a cada 5 min em slot rotativo (README §8) — só se algo mudou.
+  useEffect(() => {
+    if (!session) return;
+    const interval = setInterval(() => {
+      if (historyTickRef.current === lastAutosavedTick.current) return;
+      lastAutosavedTick.current = historyTickRef.current;
+      void saveWmap(session.world).then((bytes) =>
+        writeAutosave(session.world.config.projectName, bytes),
+      );
+    }, AUTOSAVE_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [session]);
+
+  // Oferece restauração do autosave mais recente na tela inicial.
+  useEffect(() => {
+    void readLatestAutosave().then((record) => {
+      if (record) setAutosaveInfo({ projectName: record.projectName, savedAt: record.savedAt });
+    });
+  }, []);
+
+  const handleSaveProject = useCallback(async () => {
+    if (!session) return;
+    const thumbnail = viewportRef.current?.captureThumbnailPng() ?? undefined;
+    const bytes = await saveWmap(session.world, { thumbnailPng: thumbnail });
+    const safeName = session.world.config.projectName.replace(/[^\p{L}\p{N}_-]+/gu, '_');
+    downloadBytes(`${safeName}.wmap`, bytes, 'application/zip');
+  }, [session]);
+
+  const handleOpenProject = useCallback(async (file: File) => {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const world = await loadWmap(bytes);
+      setSession(createSessionFromWorld(world));
+      setHistoryTick(0);
+      lastAutosavedTick.current = 0;
+    } catch (error) {
+      alert(`Não foi possível abrir o projeto: ${(error as Error).message}`);
+    }
+  }, []);
+
+  const handleRestoreAutosave = useCallback(async () => {
+    const record = await readLatestAutosave();
+    if (!record) return;
+    const world = await loadWmap(record.bytes);
+    setSession(createSessionFromWorld(world));
+  }, []);
+
   if (!session) {
-    return <NewProjectDialog onCreate={(config) => setSession(createProjectSession(config))} />;
+    return (
+      <NewProjectDialog
+        onCreate={(config) => setSession(createProjectSession(config))}
+        onOpenFile={handleOpenProject}
+        autosave={autosaveInfo}
+        onRestoreAutosave={handleRestoreAutosave}
+      />
+    );
   }
 
   return (
@@ -86,20 +152,26 @@ export default function App() {
         onBiomeSettingsChange={setBiomeSettings}
         objectSettings={objectSettings}
         onObjectSettingsChange={setObjectSettings}
+        onSaveProject={handleSaveProject}
+        onOpenProject={handleOpenProject}
         historyTick={historyTick}
       />
-      <ViewportView
-        session={session}
-        activeTool={activeTool}
-        brush={brush}
-        waterSettings={waterSettings}
-        roadSettings={roadSettings}
-        regionSettings={regionSettings}
-        poiSettings={poiSettings}
-        biomeSettings={biomeSettings}
-        objectSettings={objectSettings}
-        onCursorMove={setCursor}
-      />
+      <div className="main-row">
+        <Outliner session={session} historyTick={historyTick} />
+        <ViewportView
+          session={session}
+          activeTool={activeTool}
+          brush={brush}
+          waterSettings={waterSettings}
+          roadSettings={roadSettings}
+          regionSettings={regionSettings}
+          poiSettings={poiSettings}
+          biomeSettings={biomeSettings}
+          objectSettings={objectSettings}
+          onCursorMove={setCursor}
+          apiRef={viewportRef}
+        />
+      </div>
       <StatusBar world={session.world} cursor={cursor} />
     </div>
   );

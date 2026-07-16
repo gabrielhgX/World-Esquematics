@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { UnrealExporter } from '../../io/exporters/unreal/UnrealExporter';
 import { writeZip } from '../../io/format/zip';
 import type { BrushSettings } from '../../tools/SculptTool';
@@ -37,6 +37,10 @@ interface Props {
   onBiomeSettingsChange: (settings: BiomeSettings) => void;
   objectSettings: ObjectSettings;
   onObjectSettingsChange: (settings: ObjectSettings) => void;
+  /** salva o projeto (.wmap) — o App captura o thumbnail do viewport */
+  onSaveProject: () => Promise<void>;
+  /** abre um .wmap escolhido pelo usuário */
+  onOpenProject: (file: File) => Promise<void>;
   /** muda a cada comando/undo/redo — mantém os botões sincronizados */
   historyTick: number;
 }
@@ -71,10 +75,23 @@ export function Toolbar({
   onBiomeSettingsChange,
   objectSettings,
   onObjectSettingsChange,
+  onSaveProject,
+  onOpenProject,
   historyTick,
 }: Props) {
   const { history, bus } = session;
   const [exporting, setExporting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSaveProject();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Fase 1.5 (README §11, ordem 0→1→6): exportador Unreal mínimo, só o
   // heightmap — validate() antes, avisos de reamostragem para o usuário.
@@ -151,6 +168,23 @@ export function Toolbar({
       {activeTool === 'measure' && <MeasureControls />}
 
       <div className="tool-group toolbar-right">
+        <button onClick={handleSave} disabled={saving} title="Salvar projeto (.wmap)">
+          {saving ? 'Salvando…' : 'Salvar'}
+        </button>
+        <button onClick={() => fileInputRef.current?.click()} title="Abrir projeto (.wmap)">
+          Abrir
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".wmap"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void onOpenProject(file);
+            e.target.value = '';
+          }}
+        />
         <button
           onClick={handleExportUnreal}
           disabled={exporting}

@@ -35,6 +35,8 @@ uniform vec2 u_grid;          // células (largura, altura)
 uniform float u_res;          // metros por célula
 uniform vec2 u_range;         // heightRange (min_m, max_m)
 uniform float u_seaLevel;     // cota do oceano global (m)
+uniform float u_biomeVisible; // Outliner: 1 = camada de biomas visível
+uniform float u_waterVisible; // Outliner: 1 = camada d'água visível
 
 in vec2 v_world;
 out vec4 outColor;
@@ -93,7 +95,7 @@ void main() {
   // Biomas: paleta indexada com blend (README §6, passada 2).
   ivec2 biomeIdx = ivec2(clamp(cell, vec2(0.0), u_grid - 1.0));
   uint biomeId = texelFetch(u_biome, biomeIdx, 0).r;
-  if (biomeId > 0u) {
+  if (biomeId > 0u && u_biomeVisible > 0.5) {
     vec3 biomeColor = texelFetch(u_palette, ivec2(int(biomeId), 0), 0).rgb;
     color = mix(color, biomeColor * (0.5 + 0.5 * lambert), 0.45);
   }
@@ -108,7 +110,7 @@ void main() {
     surface_m = max(surface_m, u_range.x + (lakeU16 / 65535.0) * (u_range.y - u_range.x));
   }
   float depth = surface_m - h;
-  if (depth > 0.0) {
+  if (depth > 0.0 && u_waterVisible > 0.5) {
     vec3 shallow = vec3(0.32, 0.55, 0.62);
     vec3 deep = vec3(0.07, 0.20, 0.36);
     vec3 water = mix(shallow, deep, clamp(depth / 40.0, 0.0, 1.0));
@@ -132,6 +134,8 @@ export class TerrainRenderer {
     res: WebGLUniformLocation | null;
     range: WebGLUniformLocation | null;
     seaLevel: WebGLUniformLocation | null;
+    biomeVisible: WebGLUniformLocation | null;
+    waterVisible: WebGLUniformLocation | null;
   };
   private readonly biomeTexture: WebGLTexture;
   private readonly paletteTexture: WebGLTexture;
@@ -163,6 +167,8 @@ export class TerrainRenderer {
       res: gl.getUniformLocation(this.program, 'u_res'),
       range: gl.getUniformLocation(this.program, 'u_range'),
       seaLevel: gl.getUniformLocation(this.program, 'u_seaLevel'),
+      biomeVisible: gl.getUniformLocation(this.program, 'u_biomeVisible'),
+      waterVisible: gl.getUniformLocation(this.program, 'u_waterVisible'),
     };
     // unidades de textura fixas: 0 = relevo, 1 = água, 2 = biomas, 3 = paleta
     gl.useProgram(this.program);
@@ -319,6 +325,8 @@ export class TerrainRenderer {
     );
     // mudar a cota do mar reflete instantaneamente — é só o shader (§7.2)
     gl.uniform1f(this.uniforms.seaLevel, this.world.water.seaLevel_m);
+    gl.uniform1f(this.uniforms.biomeVisible, this.world.biomes.visible ? 1 : 0);
+    gl.uniform1f(this.uniforms.waterVisible, this.world.water.visible ? 1 : 0);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.bindVertexArray(null);

@@ -128,6 +128,29 @@ export class Viewport {
     this.overlayCanvas.remove();
   }
 
+  /**
+   * Thumbnail PNG do estado atual (README §8). Renderiza e captura no mesmo
+   * task — o back buffer WebGL ainda é válido antes do compositor limpar.
+   */
+  captureThumbnailPng(maxSize = 256): Uint8Array | null {
+    if (this.cssWidth === 0 || this.cssHeight === 0) return null;
+    this.render();
+    const scale = Math.min(maxSize / this.glCanvas.width, maxSize / this.glCanvas.height, 1);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(this.glCanvas.width * scale));
+    canvas.height = Math.max(1, Math.round(this.glCanvas.height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(this.glCanvas, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(this.overlayCanvas, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/png');
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
   private render(): void {
     // Consumidor único dos dirty tiles: GPU + caches derivados (README §2).
     const dirty = this.world.terrain.raster.consumeDirty();

@@ -21,7 +21,11 @@ export interface ProjectSession {
 }
 
 export function createProjectSession(config: WorldConfig): ProjectSession {
-  const world = new WorldData(config);
+  return createSessionFromWorld(new WorldData(config));
+}
+
+/** Sessão a partir de um mundo carregado (.wmap / autosave). */
+export function createSessionFromWorld(world: WorldData): ProjectSession {
   const history = new History();
   const bus = new CommandBus(world, history);
   return { world, history, bus, kernels: new TsRasterKernels() };

@@ -17,9 +17,12 @@ import {
 
 interface Props {
   onCreate: (config: WorldConfig) => void;
+  onOpenFile?: (file: File) => Promise<void>;
+  autosave?: { projectName: string; savedAt: number } | null;
+  onRestoreAutosave?: () => Promise<void>;
 }
 
-export function NewProjectDialog({ onCreate }: Props) {
+export function NewProjectDialog({ onCreate, onOpenFile, autosave, onRestoreAutosave }: Props) {
   const [projectName, setProjectName] = useState('Novo mundo');
   const [widthKm, setWidthKm] = useState('16');
   const [heightKm, setHeightKm] = useState('16');
@@ -134,6 +137,33 @@ export function NewProjectDialog({ onCreate }: Props) {
         <button type="submit" disabled={hasErrors}>
           Criar projeto
         </button>
+
+        <div className="dialog-secondary">
+          {onOpenFile && (
+            <label className="open-file">
+              Abrir projeto (.wmap)…
+              <input
+                type="file"
+                accept=".wmap"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void onOpenFile(file);
+                }}
+              />
+            </label>
+          )}
+          {autosave && onRestoreAutosave && (
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => void onRestoreAutosave()}
+              title={new Date(autosave.savedAt).toLocaleString()}
+            >
+              Restaurar autosave: “{autosave.projectName}”
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );
