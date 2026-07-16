@@ -35,6 +35,30 @@ export default tseslint.config(
     },
   },
   {
+    // Exceção: platform/electron roda no processo MAIN do Electron (Node de
+    // verdade) — nunca pode ser importado pelo código do navegador.
+    files: ['src/platform/electron/**/*.ts'],
+    rules: { 'no-restricted-imports': 'off' },
+  },
+  {
+    // E o código do navegador nunca importa platform/electron.
+    files: ['src/{ui,render,tools}/**/*.{ts,tsx}', 'src/platform/web/**/*.ts'],
+    ignores: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['node:*', '**/platform/electron/**'],
+              message: 'Código do navegador: sem módulos do Node nem platform/electron.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Regra de ouro (README §2): nada abaixo do WorldData importa nada acima.
     // Se o core conhece o React/DOM, a arquitetura já morreu.
     files: ['src/core/**/*.ts'],
