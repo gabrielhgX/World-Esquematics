@@ -6,6 +6,8 @@ import {
   type WorldData,
 } from '../core';
 import { Camera2D, type Vec2 } from './Camera2D';
+import type { LensDefinition } from './lenses/Lens';
+import { FINAL_LENS } from './lenses/lenses';
 import { WebGLRenderer } from './webgl/WebGLRenderer';
 import { RulerOverlay } from './canvas2d/RulerOverlay';
 import { ContourOverlay } from './canvas2d/ContourOverlay';
@@ -53,6 +55,9 @@ export class Viewport {
   private readonly abort = new AbortController();
 
   private rafId: number | null = null;
+  private holdRafId: number | null = null;
+  private lastHoldTime = 0;
+  private lens: LensDefinition = FINAL_LENS;
   private panning = false;
   private lastPointer: Vec2 | null = null;
   private cssWidth = 0;
@@ -96,6 +101,13 @@ export class Viewport {
     this.scatterCache = new ScatterTileCache(world, this.biomeCache);
     this.objectOverlay = new ObjectOverlay(world, this.scatterCache);
 
+    // Zoom com limites derivados DO MUNDO: aproximar até 1 célula ≈ 256 px e
+    // afastar até o mapa ainda ocupar ~100 px — fora disso as réguas e o
+    // raster degeneram sem ganho nenhum de informação.
+    this.camera.minMetersPerPixel = world.config.terrainResolution_m / 256;
+    this.camera.maxMetersPerPixel =
+      Math.max(world.config.extent.width_m, world.config.extent.height_m) / 100;
+
     this.bindInput();
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
     this.resizeObserver.observe(container);
@@ -103,9 +115,17 @@ export class Viewport {
     this.updateCursorStyle();
   }
 
+  /** Troca a lente de visualização — só exibição, nunca dados. */
+  setLens(lens: LensDefinition): void {
+    this.lens = lens;
+    this.renderer.setLens(lens);
+    this.requestRender();
+  }
+
   setTool(tool: Tool | null): void {
     if (this.toolStroking) this.activeTool?.onPointerUp();
     this.toolStroking = false;
+    this.stopHoldTicker();
     this.activeTool = tool;
     this.updateCursorStyle();
     this.requestRender();
@@ -124,8 +144,35 @@ export class Viewport {
     this.abort.abort();
     this.resizeObserver.disconnect();
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+    this.stopHoldTicker();
     this.glCanvas.remove();
     this.overlayCanvas.remove();
+  }
+
+  /**
+   * Fluxo contínuo do pincel (estilo Photoshop): enquanto o botão estiver
+   * pressionado, ferramentas com onHold recebem um tick por frame — mouse
+   * parado continua aplicando.
+   */
+  private startHoldTicker(): void {
+    if (this.holdRafId !== null || !this.activeTool?.onHold) return;
+    this.lastHoldTime = performance.now();
+    const tick = (time: number) => {
+      if (!this.toolStroking || !this.activeTool?.onHold) {
+        this.holdRafId = null;
+        return;
+      }
+      this.activeTool.onHold(time - this.lastHoldTime);
+      this.lastHoldTime = time;
+      this.requestRender();
+      this.holdRafId = requestAnimationFrame(tick);
+    };
+    this.holdRafId = requestAnimationFrame(tick);
+  }
+
+  private stopHoldTicker(): void {
+    if (this.holdRafId !== null) cancelAnimationFrame(this.holdRafId);
+    this.holdRafId = null;
   }
 
   /**
@@ -177,11 +224,12 @@ export class Viewport {
     const ctx = this.overlayCtx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.cssWidth, this.cssHeight);
-    this.contours.draw(ctx, this.camera);
-    this.waterOverlay.draw(ctx, this.camera);
+    // overlays 2D filtrados pela LENTE ativa (só exibição)
+    if (this.lens.overlays.contours) this.contours.draw(ctx, this.camera);
+    if (this.lens.overlays.water) this.waterOverlay.draw(ctx, this.camera);
     // ordem do §6: estradas (5) → regiões (6) → objetos (7)
-    this.vectorOverlay.draw(ctx, this.camera);
-    this.objectOverlay.draw(ctx, this.camera);
+    if (this.lens.overlays.vectors) this.vectorOverlay.draw(ctx, this.camera);
+    if (this.lens.overlays.objects) this.objectOverlay.draw(ctx, this.camera);
     this.activeTool?.drawOverlay(ctx);
     this.ruler.draw(ctx, this.camera, this.cssWidth, this.cssHeight);
   }
@@ -222,6 +270,7 @@ export class Viewport {
           this.toolStroking = true;
           this.activeTool.onPointerDown(this.camera.screenToWorld(pt), toModifiers(e));
           el.setPointerCapture(e.pointerId);
+          this.startHoldTicker();
           this.requestRender();
           return;
         }
@@ -257,6 +306,7 @@ export class Viewport {
     const endInteraction = () => {
       if (this.toolStroking) this.activeTool?.onPointerUp();
       this.toolStroking = false;
+      this.stopHoldTicker();
       this.panning = false;
       this.lastPointer = null;
     };

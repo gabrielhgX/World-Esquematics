@@ -1,5 +1,6 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { Vec2 } from '../../render/Camera2D';
+import type { LensDefinition } from '../../render/lenses/Lens';
 import { Viewport } from '../../render/Viewport';
 import type { Tool } from '../../tools/Tool';
 import { SculptTool, type BrushSettings } from '../../tools/SculptTool';
@@ -23,6 +24,8 @@ interface Props {
   poiSettings: POISettings;
   biomeSettings: BiomeSettings;
   objectSettings: ObjectSettings;
+  /** lente de visualização ativa — só muda a exibição */
+  lens: LensDefinition;
   onCursorMove?: (worldPt: Vec2 | null) => void;
   /** expõe o Viewport imperativo (captura de thumbnail no save) */
   apiRef?: MutableRefObject<Viewport | null>;
@@ -50,6 +53,7 @@ export function ViewportView({
   poiSettings,
   biomeSettings,
   objectSettings,
+  lens,
   onCursorMove,
   apiRef,
 }: Props) {
@@ -138,6 +142,9 @@ export function ViewportView({
   useEffect(() => {
     if (toolsRef.current) toolsRef.current.object.settings = objectSettings;
   }, [objectSettings, session]);
+  useEffect(() => {
+    viewportRef.current?.setLens(lens);
+  }, [lens, session]);
 
   return <div className="viewport-host" ref={hostRef} />;
 }

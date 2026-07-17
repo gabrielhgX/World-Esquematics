@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { UnrealExporter } from '../../io/exporters/unreal/UnrealExporter';
 import { writeZip } from '../../io/format/zip';
+import { LENSES } from '../../render/lenses/lenses';
 import type { BrushSettings } from '../../tools/SculptTool';
 import type { WaterSettings } from '../../tools/WaterTool';
 import type { RoadSettings } from '../../tools/RoadTool';
@@ -45,6 +46,9 @@ interface Props {
   onOpenProject: (file: File) => Promise<void>;
   /** avisa o App que um export Unreal concluiu (onboarding/telemetria) */
   onExportedUnreal: () => void;
+  /** lente de visualização ativa (só exibição — nunca dados) */
+  lensId: string;
+  onLensChange: (lensId: string) => void;
   /** muda a cada comando/undo/redo — mantém os botões sincronizados */
   historyTick: number;
 }
@@ -83,6 +87,8 @@ export function Toolbar({
   onDownloadProject,
   onOpenProject,
   onExportedUnreal,
+  lensId,
+  onLensChange,
   historyTick,
 }: Props) {
   const { history, bus } = session;
@@ -178,6 +184,20 @@ export function Toolbar({
       {activeTool === 'measure' && <MeasureControls />}
 
       <div className="tool-group toolbar-right">
+        <label className="lens-picker" title="Lente de visualização — só muda a exibição do mapa">
+          Lente
+          <select
+            value={lensId}
+            onChange={(e) => onLensChange(e.target.value)}
+            data-testid="lens-select"
+          >
+            {LENSES.map((lens) => (
+              <option key={lens.id} value={lens.id} title={lens.description}>
+                {lens.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button onClick={handleSave} disabled={saving} title="Salvar no navegador (§10.2)">
           {saving ? 'Salvando…' : saved ? 'Salvo ✓' : 'Salvar'}
         </button>

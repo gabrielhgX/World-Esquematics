@@ -1,5 +1,6 @@
 import type { TiledRaster, WorldData, TileKey } from '../../core';
 import type { Camera2D } from '../Camera2D';
+import type { LensDefinition } from '../lenses/Lens';
 import { TerrainRenderer } from './TerrainRenderer';
 
 /**
@@ -42,6 +43,11 @@ export class WebGLRenderer {
 
   updateBiomePalette(palette: WorldData['biomes']['palette']): void {
     this.terrain.updateBiomePalette(palette);
+  }
+
+  /** Troca a lente de visualização (só exibição — nunca dados). */
+  setLens(lens: LensDefinition): void {
+    this.terrain.setLens(lens);
   }
 
   render(camera: Camera2D): void {
