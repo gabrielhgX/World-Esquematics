@@ -39,6 +39,9 @@ export const DEFAULT_BRUSH: BrushSettings = {
 /** metros somados por dab no centro do pincel, com strength = 1 */
 const RAISE_M_PER_DAB = 3;
 
+/** fluxo contínuo segurando o botão (estilo Photoshop): dabs por segundo */
+const HOLD_DABS_PER_SECOND = 10;
+
 const MODE_LABELS: Record<SculptMode, string> = {
   raise: 'Esculpir — elevar',
   lower: 'Esculpir — rebaixar',
@@ -53,6 +56,7 @@ export class SculptTool implements Tool {
   private stroking = false;
   private lastDab: Vec2 | null = null;
   private cursorPos: Vec2 | null = null;
+  private holdAccum_ms = 0;
   /** alvo do flatten: altura do primeiro clique (README §7.1) */
   private flattenTarget_u16 = 0;
 
@@ -61,12 +65,31 @@ export class SculptTool implements Tool {
   onPointerDown(pt: Vec2, _mods: Modifiers): void {
     if (this.ctx.world.terrain.locked) return; // Outliner: camada travada
     this.stroking = true;
+    this.cursorPos = pt;
+    this.holdAccum_ms = 0;
     if (this.brush.mode === 'flatten') {
       const range = this.ctx.world.config.heightRange;
       this.flattenTarget_u16 = heightToU16(this.ctx.world.terrain.getHeight(pt.x, pt.y), range);
     }
     this.dab(pt);
     this.lastDab = pt;
+  }
+
+  /**
+   * Botão pressionado = pincel FLUINDO (mesmo com o mouse parado): um dab a
+   * cada 1/HOLD_DABS_PER_SECOND s na posição atual do cursor. O arrasto
+   * continua espaçando dabs pelo trajeto (onPointerMove); os dois mecanismos
+   * somam, como flow em softwares de pintura.
+   */
+  onHold(dt_ms: number): void {
+    if (!this.stroking || !this.cursorPos) return;
+    const interval_ms = 1000 / HOLD_DABS_PER_SECOND;
+    // dt gigante (aba em segundo plano) não vira rajada
+    this.holdAccum_ms = Math.min(this.holdAccum_ms + dt_ms, interval_ms * 4);
+    while (this.holdAccum_ms >= interval_ms) {
+      this.holdAccum_ms -= interval_ms;
+      this.dab(this.cursorPos);
+    }
   }
 
   onPointerMove(pt: Vec2): void {

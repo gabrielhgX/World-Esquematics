@@ -52,6 +52,13 @@ export class WaterLayer implements Layer {
   /** nível do mar global (README §7.2): um WaterBody kind ocean, uma cota */
   readonly ocean: WaterBody;
 
+  /**
+   * O oceano começa DESLIGADO: escavar o terreno nunca faz água aparecer
+   * sozinha — água só existe quando o usuário a coloca (ferramenta Água).
+   * Ligar/desligar é mutação com versão (caches derivados reagem).
+   */
+  private _oceanEnabled = false;
+
   private readonly bodies: WaterBody[] = [];
   private readonly riverSplines: RiverSpline[] = [];
   /** bumpa a cada mutação — caches derivados comparam para invalidar (D6) */
@@ -78,6 +85,17 @@ export class WaterLayer implements Layer {
   /** [Command] muda a cota do mar — reflete instantaneamente (só o shader). */
   setSeaLevel(surface_m: number): void {
     this.ocean.surface_m = surface_m;
+    this.touch();
+  }
+
+  get oceanEnabled(): boolean {
+    return this._oceanEnabled;
+  }
+
+  /** [Command/loader] liga ou desliga o oceano global. */
+  setOceanEnabled(enabled: boolean): void {
+    if (this._oceanEnabled === enabled) return;
+    this._oceanEnabled = enabled;
     this.touch();
   }
 
@@ -126,7 +144,8 @@ export class WaterLayer implements Layer {
    * terreno, calculada por quem chama.
    */
   surfaceAt(x_m: number, y_m: number): number {
-    let surface = this.ocean.surface_m;
+    // oceano desligado: nenhuma superfície global — só lagos contam
+    let surface = this._oceanEnabled ? this.ocean.surface_m : -Infinity;
     for (const body of this.bodies) {
       if (body.surface_m > surface && pointInPolygon(x_m, y_m, body.polygon)) {
         surface = body.surface_m;

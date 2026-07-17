@@ -43,6 +43,8 @@ interface WmapLayers {
   terrain: { tileSize: number; baseHeight_u16: number };
   water: {
     seaLevel_m: number;
+    /** ausente em arquivos antigos — ver compat no load */
+    oceanEnabled?: boolean;
     oceanMaterial: string;
     lakes: WaterBody[];
     rivers: RiverSpline[];
@@ -106,6 +108,7 @@ export async function saveWmap(
     },
     water: {
       seaLevel_m: world.water.seaLevel_m,
+      oceanEnabled: world.water.oceanEnabled,
       oceanMaterial: world.water.ocean.material,
       lakes: [...world.water.lakes],
       rivers: [...world.water.rivers],
@@ -188,6 +191,8 @@ export async function loadWmap(bytes: Uint8Array): Promise<WorldData> {
   }
 
   world.water.setSeaLevel(layers.water.seaLevel_m);
+  // compat: arquivos de antes do flag — mar mexido pelo usuário fica ligado
+  world.water.setOceanEnabled(layers.water.oceanEnabled ?? layers.water.seaLevel_m !== 0);
   world.water.ocean.material = layers.water.oceanMaterial;
   for (const lake of layers.water.lakes) world.water.addBody(lake);
   for (const river of layers.water.rivers) world.water.addRiver(river);

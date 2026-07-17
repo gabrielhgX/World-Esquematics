@@ -123,3 +123,59 @@ describe('SculptTool (README §7.1) — só emite Commands', () => {
     expect(ctx.bus.history.undoCount).toBe(0);
   });
 });
+
+describe('SculptTool — fluxo contínuo com o botão pressionado (estilo Photoshop)', () => {
+  it('mouse PARADO: onHold continua aplicando dabs no ritmo do tempo', () => {
+    const ctx = makeContext();
+    const tool = new SculptTool(ctx);
+    tool.brush = { ...tool.brush, radius_m: 100, strength: 1, falloff: 'constant' };
+    const pt = { x: 1024, y: 1024 };
+
+    tool.onPointerDown(pt, mods); // 1º dab
+    const afterFirstDab = ctx.world.terrain.getHeight(pt.x, pt.y);
+    expect(afterFirstDab).toBeGreaterThan(0);
+
+    // 1 s parado a 60 fps ⇒ ~10 dabs extras (HOLD_DABS_PER_SECOND)
+    for (let i = 0; i < 60; i++) tool.onHold(1000 / 60);
+    const afterHold = ctx.world.terrain.getHeight(pt.x, pt.y);
+    expect(afterHold).toBeGreaterThan(afterFirstDab * 5);
+
+    tool.onPointerUp();
+    // o traço inteiro (down + hold) coalesceu num ÚNICO comando (§5.1)
+    expect(ctx.bus.history.undoCount).toBe(1);
+    ctx.bus.undo();
+    expect(ctx.world.terrain.raster.allocatedTileCount).toBe(0);
+  });
+
+  it('dt gigante (aba em segundo plano) não vira rajada de dabs', () => {
+    const ctx = makeContext();
+    const tool = new SculptTool(ctx);
+    tool.brush = { ...tool.brush, radius_m: 100, strength: 1, falloff: 'constant' };
+    const pt = { x: 500, y: 500 };
+
+    tool.onPointerDown(pt, mods);
+    const single = ctx.world.terrain.getHeight(pt.x, pt.y);
+    tool.onHold(60_000); // 1 minuto de dt acumulado
+    const after = ctx.world.terrain.getHeight(pt.x, pt.y);
+    // teto: no máximo ~4 dabs de rajada, nunca 600
+    expect(after).toBeLessThan(single * 8);
+    tool.onPointerUp();
+  });
+
+  it('sem stroke ativo, onHold não faz nada', () => {
+    const ctx = makeContext();
+    const tool = new SculptTool(ctx);
+    tool.onPointerMove({ x: 300, y: 300 }); // só preview
+    tool.onHold(1000);
+    expect(ctx.world.terrain.raster.allocatedTileCount).toBe(0);
+  });
+
+  it('camada travada: nem o clique nem o hold esculpem', () => {
+    const ctx = makeContext();
+    const tool = new SculptTool(ctx);
+    ctx.world.terrain.locked = true;
+    tool.onPointerDown({ x: 800, y: 800 }, mods);
+    tool.onHold(1000);
+    expect(ctx.world.terrain.raster.allocatedTileCount).toBe(0);
+  });
+});

@@ -56,9 +56,11 @@ describe('WaterTool (README §7.2) — só emite Commands', () => {
     expect(lake.kind).toBe('lake');
     expect(lake.surface_m).toBe(-20);
     expect(lake.polygon.length).toBeGreaterThan(3);
-    // surfaceAt devolve a superfície mais ALTA: com o mar na cota 0 o oceano
-    // global cobre a cratera; baixando o mar, o lago passa a mandar
+    // surfaceAt devolve a superfície mais ALTA — e o oceano só conta
+    // depois de LIGADO (água nunca aparece sozinha ao escavar)
+    expect(ctx.world.water.surfaceAt(100, 100)).toBe(-Infinity); // fora, seco
     ctx.world.water.setSeaLevel(-100);
+    ctx.world.water.setOceanEnabled(true);
     expect(ctx.world.water.surfaceAt(1024, 1024)).toBe(-20);
     expect(ctx.world.water.surfaceAt(100, 100)).toBe(-100); // fora do lago
 

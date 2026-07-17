@@ -67,6 +67,7 @@ function buildVolcanicIsland(): WorldData {
 
   // mar a 5 m: a planície basal (0 m) vira oceano; a ilha emerge
   world.water.setSeaLevel(5);
+  world.water.setOceanEnabled(true);
   // lago na cratera (cota acima do fundo cavado)
   world.water.addBody({
     id: newId(),
@@ -124,6 +125,7 @@ function buildRiverValley(): WorldData {
 
   // o rio desce o vale (cota decrescente — §4.3) e deságua no mar
   world.water.setSeaLevel(0);
+  world.water.setOceanEnabled(true);
   world.water.addRiver({
     id: newId(),
     nodes: [
