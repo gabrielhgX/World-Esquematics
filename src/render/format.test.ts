@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatMeters } from './format';
+import { formatMeters, formatRulerMeters } from './format';
 import { niceStep } from './canvas2d/RulerOverlay';
 
 describe('formatMeters (rótulos de régua/status)', () => {
@@ -10,6 +10,27 @@ describe('formatMeters (rótulos de régua/status)', () => {
     expect(formatMeters(16000)).toBe('16 km');
     expect(formatMeters(0.4)).toBe('40 cm');
     expect(formatMeters(-2500)).toBe('-2.5 km');
+  });
+});
+
+describe('formatRulerMeters (precisão vem do PASSO — bug do zoom máximo)', () => {
+  it('zoom máximo perto de 4 km: vizinhos nunca colapsam no mesmo rótulo', () => {
+    // antes: passo 1 m perto de 4 km imprimia "4 km" repetido em todo tick
+    expect(formatRulerMeters(4001, 1)).toBe('4001 m');
+    expect(formatRulerMeters(4002, 1)).toBe('4002 m');
+    expect(formatRulerMeters(4001.2, 0.2)).toBe('4001.2 m');
+  });
+
+  it('a unidade vem do passo: régua inteira homogênea', () => {
+    expect(formatRulerMeters(4000, 2000)).toBe('4 km');
+    expect(formatRulerMeters(4100, 100)).toBe('4.1 km');
+    expect(formatRulerMeters(3500, 20)).toBe('3500 m');
+    expect(formatRulerMeters(0.4, 0.2)).toBe('0.4 m');
+  });
+
+  it('zero nunca vira "-0"', () => {
+    expect(formatRulerMeters(-0.0001, 1)).toBe('0 m');
+    expect(formatRulerMeters(-0.04, 0.5)).toBe('0.0 m');
   });
 });
 

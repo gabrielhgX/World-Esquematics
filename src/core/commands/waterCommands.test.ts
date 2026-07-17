@@ -50,14 +50,34 @@ describe('comandos de água (README §5.2)', () => {
     expect(world.water.lakes.length).toBe(1);
   });
 
-  it('mundo nasce com o oceano global e surfaceAt cobre lagos', () => {
+  it('oceano nasce DESLIGADO: escavar nunca revela água sozinho', () => {
     const world = makeWorld();
     expect(world.water.ocean.kind).toBe('ocean');
-    expect(world.water.seaLevel_m).toBe(0);
-
+    expect(world.water.oceanEnabled).toBe(false);
+    // sem oceano, não há superfície global — só lagos contam
     world.water.addBody(makeLake());
     expect(world.water.surfaceAt(50, 50)).toBe(20); // dentro do lago
-    expect(world.water.surfaceAt(500, 500)).toBe(0); // só o oceano
+    expect(world.water.surfaceAt(500, 500)).toBe(-Infinity); // fora: seco
+
+    // ligar o mar é gesto explícito (SetSeaLevelCommand liga por padrão)
+    world.water.setOceanEnabled(true);
+    expect(world.water.surfaceAt(500, 500)).toBe(0);
+  });
+
+  it('SetSeaLevelCommand liga o oceano; undo devolve o estado desligado', () => {
+    const world = makeWorld();
+    const bus = new CommandBus(world, new History());
+    expect(world.water.oceanEnabled).toBe(false);
+    bus.execute(new SetSeaLevelCommand(-5));
+    expect(world.water.oceanEnabled).toBe(true);
+    expect(world.water.seaLevel_m).toBe(-5);
+    bus.execute(new SetSeaLevelCommand(-5, false)); // checkbox desliga
+    expect(world.water.oceanEnabled).toBe(false);
+    bus.undo();
+    expect(world.water.oceanEnabled).toBe(true);
+    bus.undo();
+    expect(world.water.oceanEnabled).toBe(false);
+    expect(world.water.seaLevel_m).toBe(0);
   });
 
   it('AddRiversCommand: N rios entram e saem juntos (Sugerir rios)', () => {

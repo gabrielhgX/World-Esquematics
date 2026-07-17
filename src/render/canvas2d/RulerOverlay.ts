@@ -1,5 +1,5 @@
 import type { Camera2D } from '../Camera2D';
-import { formatMeters } from '../format';
+import { formatRulerMeters } from '../format';
 
 /**
  * Réguas em metros (README Fase 0, entregável): topo = X/Leste,
@@ -65,7 +65,7 @@ export class RulerOverlay {
       ctx.lineTo(sx, RULER_THICKNESS_PX);
       ctx.stroke();
       if (isMajor) {
-        ctx.fillText(formatMeters(value), sx + 3, 10);
+        ctx.fillText(formatRulerMeters(value, step), sx + 3, 10);
       }
     }
   }
@@ -103,7 +103,7 @@ export class RulerOverlay {
         ctx.save();
         ctx.translate(10, sy - 4);
         ctx.rotate(-Math.PI / 2);
-        ctx.fillText(formatMeters(value), 0, 0);
+        ctx.fillText(formatRulerMeters(value, step), 0, 0);
         ctx.restore();
       }
     }

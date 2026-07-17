@@ -63,6 +63,7 @@ export function exportWater(world: WorldData) {
 
   return {
     ocean: {
+      enabled: world.water.oceanEnabled,
       surfaceZ_uu: world.water.seaLevel_m * 100,
       material: world.water.ocean.material,
     },

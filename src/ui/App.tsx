@@ -14,6 +14,7 @@ import { DEFAULT_REGION_SETTINGS, type RegionSettings } from '../tools/RegionToo
 import { DEFAULT_POI_SETTINGS, type POISettings } from '../tools/POITool';
 import { DEFAULT_BIOME_SETTINGS, type BiomeSettings } from '../tools/BiomeTool';
 import { DEFAULT_OBJECT_SETTINGS, type ObjectSettings } from '../tools/ObjectTool';
+import { getLens } from '../render/lenses/lenses';
 import { downloadBytes } from './download';
 import { NewProjectDialog } from './components/NewProjectDialog';
 import { Onboarding } from './components/Onboarding';
@@ -44,6 +45,7 @@ export default function App({ platform }: { platform: Platform }) {
   });
   const [historyTick, setHistoryTick] = useState(0);
   const [exportTick, setExportTick] = useState(0);
+  const [lensId, setLensId] = useState('final');
   const [autosaveInfo, setAutosaveInfo] = useState<{ projectName: string; savedAt: number } | null>(
     null,
   );
@@ -272,6 +274,8 @@ export default function App({ platform }: { platform: Platform }) {
           setExportTick((n) => n + 1);
           platform.telemetry.event('export_unreal');
         }}
+        lensId={lensId}
+        onLensChange={setLensId}
         historyTick={historyTick}
       />
       <div className="main-row">
@@ -286,6 +290,7 @@ export default function App({ platform }: { platform: Platform }) {
           poiSettings={poiSettings}
           biomeSettings={biomeSettings}
           objectSettings={objectSettings}
+          lens={getLens(lensId)}
           onCursorMove={setCursor}
           apiRef={viewportRef}
         />

@@ -1,6 +1,8 @@
 import type { BiomeDefinition, TiledRaster, WorldData } from '../../core';
 import { parseTileKey, type TileKey } from '../../core';
 import type { Camera2D } from '../Camera2D';
+import type { LensDefinition } from '../lenses/Lens';
+import { FINAL_LENS } from '../lenses/lenses';
 import { createProgram } from './glUtils';
 
 /**
@@ -31,12 +33,15 @@ uniform usampler2D u_height;  // R16UI
 uniform usampler2D u_water;   // R16UI: cota u16 da superfície dos lagos, 0 = sem água
 uniform usampler2D u_biome;   // R8UI: id do bioma por célula, 0 = sem bioma
 uniform sampler2D u_palette;  // 256×1: cor de cada id de bioma
+uniform sampler2D u_lensRamp; // 256×1: rampa da LENTE ativa (min→max do range)
 uniform vec2 u_grid;          // células (largura, altura)
 uniform float u_res;          // metros por célula
 uniform vec2 u_range;         // heightRange (min_m, max_m)
-uniform float u_seaLevel;     // cota do oceano global (m)
-uniform float u_biomeVisible; // Outliner: 1 = camada de biomas visível
-uniform float u_waterVisible; // Outliner: 1 = camada d'água visível
+uniform float u_seaLevel;     // cota do oceano global (m); MUITO negativo = desligado
+uniform float u_biomeVisible; // Outliner ∧ lente: 1 = biomas visíveis
+uniform float u_waterVisible; // Outliner ∧ lente: 1 = água visível
+uniform float u_useLensRamp;  // 1 = cor vem da rampa da lente
+uniform float u_hillshade;    // 1 = relevo sombreado (lentes podem desligar)
 
 in vec2 v_world;
 out vec4 outColor;
@@ -90,14 +95,26 @@ void main() {
   // montanhas e vales.
   vec3 sun = normalize(vec3(-0.5, 0.5, 0.7071));
   float lambert = max(dot(n, sun), 0.0);
-  vec3 color = ramp(h) * (0.4 + 0.6 * lambert);
+  // lentes podem desligar o hillshade (gradiente puro, ex.: Altitude)
+  float shade = u_hillshade > 0.5 ? (0.4 + 0.6 * lambert) : 1.0;
+
+  // cor base: rampa padrão ou a rampa da LENTE ativa (só exibição)
+  vec3 base;
+  if (u_useLensRamp > 0.5) {
+    float t = clamp((h - u_range.x) / max(u_range.y - u_range.x, 1.0), 0.0, 1.0);
+    base = texelFetch(u_lensRamp, ivec2(int(t * 255.0 + 0.5), 0), 0).rgb;
+  } else {
+    base = ramp(h);
+  }
+  vec3 color = base * shade;
 
   // Biomas: paleta indexada com blend (README §6, passada 2).
   ivec2 biomeIdx = ivec2(clamp(cell, vec2(0.0), u_grid - 1.0));
   uint biomeId = texelFetch(u_biome, biomeIdx, 0).r;
   if (biomeId > 0u && u_biomeVisible > 0.5) {
     vec3 biomeColor = texelFetch(u_palette, ivec2(int(biomeId), 0), 0).rgb;
-    color = mix(color, biomeColor * (0.5 + 0.5 * lambert), 0.45);
+    float biomeShade = u_hillshade > 0.5 ? (0.5 + 0.5 * lambert) : 1.0;
+    color = mix(color, biomeColor * biomeShade, 0.45);
   }
 
   // Água por PROFUNDIDADE DERIVADA (README §4.3/§6, D8):
@@ -115,7 +132,8 @@ void main() {
     vec3 deep = vec3(0.07, 0.20, 0.36);
     vec3 water = mix(shallow, deep, clamp(depth / 40.0, 0.0, 1.0));
     float shore = clamp(depth / 1.5, 0.0, 1.0); // transição suave na margem
-    color = mix(color, water * (0.7 + 0.3 * lambert), 0.35 + 0.6 * shore);
+    float waterShade = u_hillshade > 0.5 ? (0.7 + 0.3 * lambert) : 1.0;
+    color = mix(color, water * waterShade, 0.35 + 0.6 * shore);
   }
 
   outColor = vec4(color, 1.0);
@@ -136,7 +154,11 @@ export class TerrainRenderer {
     seaLevel: WebGLUniformLocation | null;
     biomeVisible: WebGLUniformLocation | null;
     waterVisible: WebGLUniformLocation | null;
+    useLensRamp: WebGLUniformLocation | null;
+    hillshade: WebGLUniformLocation | null;
   };
+  private readonly lensRampTexture: WebGLTexture;
+  private lens: LensDefinition = FINAL_LENS;
   private readonly biomeTexture: WebGLTexture;
   private readonly paletteTexture: WebGLTexture;
   /** buffer 512² reutilizado para regiões de tiles não alocados */
@@ -169,13 +191,17 @@ export class TerrainRenderer {
       seaLevel: gl.getUniformLocation(this.program, 'u_seaLevel'),
       biomeVisible: gl.getUniformLocation(this.program, 'u_biomeVisible'),
       waterVisible: gl.getUniformLocation(this.program, 'u_waterVisible'),
+      useLensRamp: gl.getUniformLocation(this.program, 'u_useLensRamp'),
+      hillshade: gl.getUniformLocation(this.program, 'u_hillshade'),
     };
-    // unidades de textura fixas: 0 = relevo, 1 = água, 2 = biomas, 3 = paleta
+    // unidades de textura fixas: 0 = relevo, 1 = água, 2 = biomas,
+    // 3 = paleta, 4 = rampa da lente
     gl.useProgram(this.program);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_height'), 0);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_water'), 1);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_biome'), 2);
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_palette'), 3);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_lensRamp'), 4);
 
     // Quad da extensão do mundo em metros (triangle strip).
     const res = world.config.terrainResolution_m;
@@ -240,6 +266,33 @@ export class TerrainRenderer {
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 1);
     setNearestClamp(gl);
     this.updateBiomePalette(world.biomes.palette);
+
+    // rampa da LENTE ativa (256×1) — trocada em setLens
+    this.lensRampTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.lensRampTexture);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 1);
+    setNearestClamp(gl);
+  }
+
+  /** Troca a lente de visualização — só exibição, nunca dados. */
+  setLens(lens: LensDefinition): void {
+    this.lens = lens;
+    if (!lens.buildRamp) return;
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.lensRampTexture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      256,
+      1,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      lens.buildRamp(this.world.config.heightRange),
+    );
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
   }
 
   /** Reenvia a paleta de cores dos biomas (id → cor). */
@@ -310,6 +363,8 @@ export class TerrainRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.biomeTexture);
     gl.activeTexture(gl.TEXTURE3);
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, this.lensRampTexture);
 
     const raster = this.world.terrain.raster;
     const { width, height } = camera.viewportSize;
@@ -323,10 +378,17 @@ export class TerrainRenderer {
       this.world.config.heightRange.min_m,
       this.world.config.heightRange.max_m,
     );
-    // mudar a cota do mar reflete instantaneamente — é só o shader (§7.2)
-    gl.uniform1f(this.uniforms.seaLevel, this.world.water.seaLevel_m);
-    gl.uniform1f(this.uniforms.biomeVisible, this.world.biomes.visible ? 1 : 0);
-    gl.uniform1f(this.uniforms.waterVisible, this.world.water.visible ? 1 : 0);
+    // mudar a cota do mar reflete instantaneamente — é só o shader (§7.2);
+    // oceano DESLIGADO = cota impossível: escavar nunca revela água sozinho
+    gl.uniform1f(
+      this.uniforms.seaLevel,
+      this.world.water.oceanEnabled ? this.world.water.seaLevel_m : -1e9,
+    );
+    const lens = this.lens;
+    gl.uniform1f(this.uniforms.biomeVisible, this.world.biomes.visible && lens.showBiomes ? 1 : 0);
+    gl.uniform1f(this.uniforms.waterVisible, this.world.water.visible && lens.showWater ? 1 : 0);
+    gl.uniform1f(this.uniforms.useLensRamp, lens.buildRamp ? 1 : 0);
+    gl.uniform1f(this.uniforms.hillshade, lens.hillshade ? 1 : 0);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.bindVertexArray(null);

@@ -15,6 +15,7 @@ interface Props {
 export function WaterControls({ session, settings, onSettingsChange, historyTick }: Props) {
   const [seaLevelText, setSeaLevelText] = useState(String(session.world.water.seaLevel_m));
   const [suggesting, setSuggesting] = useState(false);
+  const oceanEnabled = session.world.water.oceanEnabled; // re-render via historyTick
 
   useEffect(() => {
     setSeaLevelText(String(session.world.water.seaLevel_m));
@@ -107,16 +108,30 @@ export function WaterControls({ session, settings, onSettingsChange, historyTick
         </>
       )}
 
-      <label title="Cota do oceano global — reflete instantaneamente">
-        Mar (m)
+      <label title="Liga/desliga o oceano global — água nunca aparece sozinha ao escavar">
         <input
-          type="number"
-          step="1"
-          value={seaLevelText}
-          onChange={(e) => commitSeaLevel(e.target.value)}
-          onBlur={() => session.bus.sealCoalescing()}
+          type="checkbox"
+          checked={oceanEnabled}
+          onChange={(e) => {
+            session.bus.execute(
+              new SetSeaLevelCommand(session.world.water.seaLevel_m, e.target.checked),
+            );
+          }}
         />
+        Mar
       </label>
+      {oceanEnabled && (
+        <label title="Cota do oceano global — reflete instantaneamente">
+          Cota do mar (m)
+          <input
+            type="number"
+            step="1"
+            value={seaLevelText}
+            onChange={(e) => commitSeaLevel(e.target.value)}
+            onBlur={() => session.bus.sealCoalescing()}
+          />
+        </label>
+      )}
 
       <button
         onClick={handleSuggestRivers}

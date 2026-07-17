@@ -24,7 +24,11 @@ function childrenOf(world: WorldData, layer: Layer): string[] {
         (p) => `${world.biomes.getBiome(p.biomeId)?.name ?? `bioma ${p.biomeId}`}`,
       );
     case 'water': {
-      const items = [`Oceano (cota ${world.water.seaLevel_m} m)`];
+      const items = [
+        world.water.oceanEnabled
+          ? `Oceano (cota ${world.water.seaLevel_m} m)`
+          : 'Oceano — desligado',
+      ];
       items.push(...world.water.lakes.map((l) => `Lago (cota ${l.surface_m} m)`));
       items.push(...world.water.rivers.map((r) => `Rio (${r.nodes.length} nós)`));
       return items;

@@ -55,22 +55,35 @@ export class SetSeaLevelCommand implements Command {
   readonly label = 'Nível do mar';
   readonly memoryCost = 64;
 
-  private before: number | null = null;
+  private before: { level: number; enabled: boolean } | null = null;
 
-  constructor(private after: number) {}
+  /**
+   * Definir a cota LIGA o oceano por padrão (é o gesto de "colocar o mar");
+   * `enabled: false` desliga — água nunca aparece sem gesto explícito.
+   */
+  constructor(
+    private after: number,
+    private afterEnabled = true,
+  ) {}
 
   apply(world: WorldData): void {
-    if (this.before === null) this.before = world.water.seaLevel_m;
+    if (this.before === null) {
+      this.before = { level: world.water.seaLevel_m, enabled: world.water.oceanEnabled };
+    }
     world.water.setSeaLevel(this.after);
+    world.water.setOceanEnabled(this.afterEnabled);
   }
 
   revert(world: WorldData): void {
-    if (this.before !== null) world.water.setSeaLevel(this.before);
+    if (this.before === null) return;
+    world.water.setSeaLevel(this.before.level);
+    world.water.setOceanEnabled(this.before.enabled);
   }
 
   mergeWith(next: Command): Command | null {
     if (!(next instanceof SetSeaLevelCommand)) return null;
     this.after = next.after; // o before mais antigo permanece
+    this.afterEnabled = next.afterEnabled;
     return this;
   }
 }

@@ -38,8 +38,9 @@ const makeRichWorld = () => {
   );
   world.terrain.raster.consumeDirty();
 
-  // água: mar, lago e rio
+  // água: mar (ligado explicitamente), lago e rio
   world.water.setSeaLevel(-5);
+  world.water.setOceanEnabled(true);
   world.water.addBody({
     id: newId(),
     kind: 'lake',
@@ -164,6 +165,7 @@ describe('.wmap — save/load com round-trip (README §8)', () => {
 
     // água
     expect(restored.water.seaLevel_m).toBe(-5);
+    expect(restored.water.oceanEnabled).toBe(true);
     expect(restored.water.lakes.length).toBe(1);
     expect(restored.water.lakes[0].surface_m).toBe(42);
     expect(restored.water.rivers[0].nodes.length).toBe(2);
@@ -207,6 +209,25 @@ describe('.wmap — save/load com round-trip (README §8)', () => {
     expect(entries.some((e) => e.path.startsWith('terrain/'))).toBe(false);
     const restored = await loadWmap(bytes);
     expect(restored.terrain.raster.allocatedTileCount).toBe(0);
+    // mundo novo: oceano DESLIGADO — e continua desligado após o round-trip
+    expect(restored.water.oceanEnabled).toBe(false);
+  });
+
+  it('compat: arquivo antigo sem oceanEnabled — mar mexido fica ligado', async () => {
+    const world = makeRichWorld(); // seaLevel -5
+    const bytes = await saveWmap(world);
+    // simula um .wmap v1 antigo: remove o campo novo do layers.json
+    const entries = await readZip(bytes);
+    const patched = entries.map((entry) => {
+      if (entry.path !== 'layers.json') return entry;
+      const json = JSON.parse(new TextDecoder().decode(entry.data)) as {
+        water: { oceanEnabled?: boolean };
+      };
+      delete json.water.oceanEnabled;
+      return { path: entry.path, data: new TextEncoder().encode(JSON.stringify(json)) };
+    });
+    const restored = await loadWmap(await writeZipCompressed(patched));
+    expect(restored.water.oceanEnabled).toBe(true); // seaLevel ≠ 0 ⇒ ligado
   });
 
   it('tiles do relevo saem comprimidos (deflate do zip — §8)', async () => {

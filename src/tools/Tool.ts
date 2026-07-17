@@ -16,6 +16,12 @@ export interface Tool {
   onPointerDown(pt: Vec2, mods: Modifiers): void;
   onPointerMove(pt: Vec2): void;
   onPointerUp(): void;
+  /**
+   * Fluxo contínuo (pincéis): chamado a cada frame ENQUANTO o botão está
+   * pressionado, mesmo com o mouse parado — estilo Photoshop/Blender.
+   * `dt_ms` é o tempo desde o último frame; a ferramenta decide o ritmo.
+   */
+  onHold?(dt_ms: number): void;
   /** preview do pincel, guias — desenhado por cima dos vetores */
   drawOverlay(ctx: CanvasRenderingContext2D): void;
   /** teclas sem modificador (Enter/Escape…); true = consumida */
