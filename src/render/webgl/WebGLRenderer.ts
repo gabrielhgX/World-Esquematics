@@ -1,7 +1,7 @@
 import type { TiledRaster, WorldData, TileKey } from '../../core';
 import type { Camera2D } from '../Camera2D';
 import type { LensDefinition } from '../lenses/Lens';
-import { TerrainRenderer } from './TerrainRenderer';
+import { TerrainRenderer, type TerrainView } from './TerrainRenderer';
 
 /**
  * Renderer WebGL2 do fundo (README §6): raster é WebGL, vetor é Canvas 2D.
@@ -50,10 +50,10 @@ export class WebGLRenderer {
     this.terrain.setLens(lens);
   }
 
-  render(camera: Camera2D): void {
+  render(camera: Camera2D, view: TerrainView): void {
     const gl = this.gl;
     gl.clearColor(0.15, 0.16, 0.18, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    this.terrain.render(camera);
+    this.terrain.render(camera, view);
   }
 }

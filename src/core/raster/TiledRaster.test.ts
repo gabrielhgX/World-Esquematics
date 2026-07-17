@@ -71,3 +71,40 @@ describe('TiledRaster esparso (README D4, §4.2)', () => {
     expect(parseTileKey('3,5')).toEqual({ tx: 3, ty: 5 });
   });
 });
+
+describe('tileStats — min/max lazy por tile (P0-1)', () => {
+  const make = () =>
+    new TiledRaster<Uint16Array>({
+      widthCells: 1024,
+      heightCells: 1024,
+      fillValue: 100,
+      createTile: (n) => new Uint16Array(n),
+    });
+
+  it('tile não alocado: min = max = fillValue', () => {
+    const raster = make();
+    expect(raster.tileStats(0, 0)).toEqual({ min: 100, max: 100 });
+  });
+
+  it('escrever atualiza; REBAIXAR o pico encolhe o max (rescan, não incremental)', () => {
+    const raster = make();
+    raster.set(10, 10, 900);
+    raster.set(20, 20, 50);
+    expect(raster.tileStats(0, 0)).toEqual({ min: 50, max: 900 });
+    // baixa o pico: um cache incremental erraria aqui
+    raster.set(10, 10, 100);
+    expect(raster.tileStats(0, 0).max).toBe(100);
+    expect(raster.tileStats(0, 0).min).toBe(50);
+  });
+
+  it('setTileData e deleteTile mantêm as estatísticas honestas', () => {
+    const raster = make();
+    raster.set(600, 600, 7);
+    expect(raster.tileStats(1, 1).min).toBe(7);
+    const data = new Uint16Array(512 * 512).fill(300);
+    raster.setTileData(1, 1, data);
+    expect(raster.tileStats(1, 1)).toEqual({ min: 300, max: 300 });
+    raster.deleteTile(1, 1);
+    expect(raster.tileStats(1, 1)).toEqual({ min: 100, max: 100 });
+  });
+});

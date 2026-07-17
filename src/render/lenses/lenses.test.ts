@@ -40,11 +40,17 @@ describe('lentes de visualização (só exibição — nunca dados)', () => {
     for (let i = 0; i < 256; i++) expect(ramp[i * 4 + 3]).toBe(255);
   });
 
-  it('Altitude desliga hillshade/água/biomas; Final mostra tudo', () => {
-    expect(ALTITUDE_LENS.hillshade).toBe(false);
+  it('Altitude: sombra fraca, sem água/biomas; Final mostra tudo pleno', () => {
+    expect(ALTITUDE_LENS.hillshade).toBeGreaterThan(0); // P0-6: altitude COM forma
+    expect(ALTITUDE_LENS.hillshade).toBeLessThan(1);
     expect(ALTITUDE_LENS.showWater).toBe(false);
     expect(ALTITUDE_LENS.overlays.vectors).toBe(false);
-    expect(FINAL_LENS.hillshade).toBe(true);
+    expect(FINAL_LENS.hillshade).toBe(1);
     expect(FINAL_LENS.overlays.vectors).toBe(true);
+  });
+
+  it('as duas lentes esticam para o relevo REAL (rangeSource data — P0-4)', () => {
+    expect(FINAL_LENS.rangeSource).toBe('data');
+    expect(ALTITUDE_LENS.rangeSource).toBe('data');
   });
 });

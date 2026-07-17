@@ -1,10 +1,14 @@
 import {
   BiomeRasterCache,
   ContourCache,
+  TerrainStats,
   WaterSurfaceCache,
   deriveGrid,
+  type DataRange,
   type WorldData,
 } from '../core';
+import { autoZFactor } from './shading';
+import { contourInterval } from './canvas2d/ContourOverlay';
 import { Camera2D, type Vec2 } from './Camera2D';
 import type { LensDefinition } from './lenses/Lens';
 import { FINAL_LENS } from './lenses/lenses';
@@ -58,6 +62,20 @@ export class Viewport {
   private holdRafId: number | null = null;
   private lastHoldTime = 0;
   private lens: LensDefinition = FINAL_LENS;
+
+  // --- estatísticas do relevo REAL (P0-2): alimentam rampa, z e curvas ---
+  private readonly stats: TerrainStats;
+  private statsStale = true;
+  /** faixa de exibição alvo (dataRange + margem) e a aplicada (suavizada) */
+  private targetDisplay: DataRange = { min_m: -25, max_m: 25 };
+  private appliedDisplay: DataRange = { min_m: -25, max_m: 25 };
+  private relief_m = 0;
+  private autoZ = 1;
+  private lastFrameTime = 0;
+  /** ajustes de exibição vindos da UI */
+  private zFactorSetting: number | 'auto' = 'auto';
+  private contoursEnabled = true;
+  private contourIntervalSetting: number | 'auto' = 'auto';
   private panning = false;
   private lastPointer: Vec2 | null = null;
   private cssWidth = 0;
@@ -101,6 +119,10 @@ export class Viewport {
     this.scatterCache = new ScatterTileCache(world, this.biomeCache);
     this.objectOverlay = new ObjectOverlay(world, this.scatterCache);
 
+    this.stats = new TerrainStats(world.terrain, world.config);
+    this.refreshStats();
+    this.appliedDisplay = { ...this.targetDisplay };
+
     // Zoom com limites derivados DO MUNDO: aproximar até 1 célula ≈ 256 px e
     // afastar até o mapa ainda ocupar ~100 px — fora disso as réguas e o
     // raster degeneram sem ganho nenhum de informação.
@@ -120,6 +142,30 @@ export class Viewport {
     this.lens = lens;
     this.renderer.setLens(lens);
     this.requestRender();
+  }
+
+  /** Ajustes de exibição da UI: z-factor do hillshade e curvas de nível. */
+  setDisplaySettings(settings: {
+    zFactor: number | 'auto';
+    contours: boolean;
+    contourInterval_m: number | 'auto';
+  }): void {
+    this.zFactorSetting = settings.zFactor;
+    this.contoursEnabled = settings.contours;
+    this.contourIntervalSetting = settings.contourInterval_m;
+    this.requestRender();
+  }
+
+  /**
+   * Recalcula as estatísticas do relevo (P0-2). Fora do traço: a rampa não
+   * "pula" a cada pincelada — o alvo muda no mouseup e a faixa APLICADA
+   * persegue o alvo com suavização (~200 ms) no render.
+   */
+  private refreshStats(): void {
+    this.targetDisplay = this.stats.displayRange();
+    this.relief_m = this.stats.relief_m();
+    this.autoZ = autoZFactor(this.stats.gradientP95());
+    this.statsStale = false;
   }
 
   setTool(tool: Tool | null): void {
@@ -205,7 +251,23 @@ export class Viewport {
       this.renderer.updateTiles(dirty);
       this.contourCache.invalidate(dirty);
       this.scatterCache.invalidate(dirty); // declividade mudou onde esculpiu
+      this.statsStale = true;
     }
+    if (this.statsStale && !this.toolStroking) this.refreshStats();
+
+    // suaviza a faixa aplicada rumo ao alvo (sem "pulo" de rampa por dab)
+    const now = performance.now();
+    const dt = this.lastFrameTime ? now - this.lastFrameTime : 16;
+    this.lastFrameTime = now;
+    const t = 1 - Math.exp(-dt / 200);
+    this.appliedDisplay = {
+      min_m: this.appliedDisplay.min_m + (this.targetDisplay.min_m - this.appliedDisplay.min_m) * t,
+      max_m: this.appliedDisplay.max_m + (this.targetDisplay.max_m - this.appliedDisplay.max_m) * t,
+    };
+    const spanRest =
+      Math.abs(this.targetDisplay.min_m - this.appliedDisplay.min_m) +
+      Math.abs(this.targetDisplay.max_m - this.appliedDisplay.max_m);
+    if (spanRest > 0.05) this.requestRender(); // continua a animação
     // superfície d'água derivada: sincroniza se a WaterLayer mudou de versão
     const dirtyWater = this.waterCache.sync(this.world.water);
     if (dirtyWater.length > 0) {
@@ -219,13 +281,22 @@ export class Viewport {
       this.scatterCache.clear();
     }
 
-    this.renderer.render(this.camera);
+    this.renderer.render(this.camera, {
+      zFactor: this.zFactorSetting === 'auto' ? this.autoZ : this.zFactorSetting,
+      displayRange: this.appliedDisplay,
+    });
 
     const ctx = this.overlayCtx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.cssWidth, this.cssHeight);
     // overlays 2D filtrados pela LENTE ativa (só exibição)
-    if (this.lens.overlays.contours) this.contours.draw(ctx, this.camera);
+    if (this.lens.overlays.contours && this.contoursEnabled) {
+      const interval =
+        this.contourIntervalSetting === 'auto'
+          ? contourInterval(this.camera.metersPerPixel, this.relief_m)
+          : this.contourIntervalSetting;
+      this.contours.draw(ctx, this.camera, interval);
+    }
     if (this.lens.overlays.water) this.waterOverlay.draw(ctx, this.camera);
     // ordem do §6: estradas (5) → regiões (6) → objetos (7)
     if (this.lens.overlays.vectors) this.vectorOverlay.draw(ctx, this.camera);

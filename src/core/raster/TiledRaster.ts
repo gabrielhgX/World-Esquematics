@@ -46,6 +46,8 @@ export class TiledRaster<T extends RasterArray> {
   private readonly bytesPerElement: number;
   private readonly tiles = new Map<TileKey, T>();
   private readonly dirty = new Set<TileKey>();
+  /** min/max por tile, recomputado LAZY (ver tileStats) */
+  private readonly meta = new Map<TileKey, { min: number; max: number; statsDirty: boolean }>();
 
   constructor(options: TiledRasterOptions<T>) {
     if (!(options.widthCells > 0) || !(options.heightCells > 0)) {
@@ -88,7 +90,9 @@ export class TiledRaster<T extends RasterArray> {
     const ty = Math.floor(cy / this.tileSize);
     const tile = this.getOrCreateTile(tx, ty);
     tile[(cy - ty * this.tileSize) * this.tileSize + (cx - tx * this.tileSize)] = value;
-    this.dirty.add(tileKey(tx, ty));
+    const key = tileKey(tx, ty);
+    this.dirty.add(key);
+    this.invalidateStats(key);
     return true;
   }
 
@@ -124,7 +128,9 @@ export class TiledRaster<T extends RasterArray> {
       throw new RangeError(`Tamanho de tile inválido: ${data.length} ≠ ${tile.length}`);
     }
     tile.set(data as never);
-    this.dirty.add(tileKey(tx, ty));
+    const key = tileKey(tx, ty);
+    this.dirty.add(key);
+    this.invalidateStats(key);
   }
 
   /**
@@ -135,7 +141,38 @@ export class TiledRaster<T extends RasterArray> {
     const key = tileKey(tx, ty);
     if (this.tiles.delete(key)) {
       this.dirty.add(key);
+      this.meta.delete(key);
     }
+  }
+
+  /**
+   * Min/max do tile, com rescan LAZY: escrever só marca as estatísticas
+   * sujas; o scan (512² ≈ 0,3 ms) roda quando alguém pede — e apenas nos
+   * tiles sujos. Incremental no set() estaria ERRADO: baixar o pico de um
+   * tile não encolhe o max; só o rescan dá o valor certo.
+   */
+  tileStats(tx: number, ty: number): { min: number; max: number } {
+    const key = tileKey(tx, ty);
+    const tile = this.tiles.get(key);
+    if (!tile) return { min: this.fillValue, max: this.fillValue };
+    let m = this.meta.get(key);
+    if (!m || m.statsDirty) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (let i = 0; i < tile.length; i++) {
+        const v = tile[i];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      m = { min, max, statsDirty: false };
+      this.meta.set(key, m);
+    }
+    return { min: m.min, max: m.max };
+  }
+
+  private invalidateStats(key: TileKey): void {
+    const m = this.meta.get(key);
+    if (m) m.statsDirty = true;
   }
 
   /**

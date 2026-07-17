@@ -35,6 +35,7 @@ export * from './commands/vectorCommands';
 export * from './commands/biomeCommands';
 export { SetLayerPropertyCommand } from './commands/layerCommands';
 export * from './derived/roadGrade';
+export { TerrainStats, FLAT_FALLBACK_SPAN_M, type DataRange } from './derived/TerrainStats';
 export { BiomeRasterCache } from './derived/BiomeRasterCache';
 export * from './derived/scatter';
 export * from './derived/contours';

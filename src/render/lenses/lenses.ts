@@ -1,5 +1,4 @@
-import type { HeightRange } from '../../core';
-import type { LensDefinition } from './Lens';
+import type { DisplayRange, LensDefinition } from './Lens';
 
 /**
  * Registro de lentes. A primeira é a visualização final (padrão do editor);
@@ -31,7 +30,7 @@ const DEEP_BLUE: Rgb = [10, 40, 96];
 export const ALTITUDE_SUBMERGED_M = -1;
 
 /** Cor da lente de altitude para uma cota (exportada para teste). */
-export function altitudeColorAt(h_m: number, range: HeightRange): Rgb {
+export function altitudeColorAt(h_m: number, range: DisplayRange): Rgb {
   const top = Math.max(range.max_m, 1);
   if (h_m >= 0) {
     const f = Math.min(1, h_m / top);
@@ -50,7 +49,7 @@ export function altitudeColorAt(h_m: number, range: HeightRange): Rgb {
   return mix(BLUE, DEEP_BLUE, f);
 }
 
-function buildAltitudeRamp(range: HeightRange): Uint8Array {
+function buildAltitudeRamp(range: DisplayRange): Uint8Array {
   const ramp = new Uint8Array(256 * 4);
   for (let i = 0; i < 256; i++) {
     const h = range.min_m + (i / 255) * (range.max_m - range.min_m);
@@ -68,7 +67,8 @@ export const FINAL_LENS: LensDefinition = {
   name: 'Final',
   description: 'Visualização final: hillshade, biomas, água e vetores.',
   buildRamp: null,
-  hillshade: true,
+  rangeSource: 'data',
+  hillshade: 1,
   showWater: true,
   showBiomes: true,
   overlays: { contours: true, water: true, vectors: true, objects: true },
@@ -77,9 +77,12 @@ export const FINAL_LENS: LensDefinition = {
 export const ALTITUDE_LENS: LensDefinition = {
   id: 'altitude',
   name: 'Altitude',
-  description: 'Gradiente de cor por altitude — atualiza em tempo real ao esculpir.',
+  description: 'Gradiente de cor pela altitude REAL do mapa — atualiza ao esculpir.',
   buildRamp: buildAltitudeRamp,
-  hillshade: false,
+  rangeSource: 'data',
+  // sombreado FRACO (P0-6): altitude sem sombra é um gradiente chapado;
+  // 0.5 dá forma ao relevo sem sujar a leitura da cor
+  hillshade: 0.5,
   showWater: false,
   showBiomes: false,
   overlays: { contours: true, water: false, vectors: false, objects: false },

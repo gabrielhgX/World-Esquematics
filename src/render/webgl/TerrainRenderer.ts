@@ -1,9 +1,15 @@
 import type { BiomeDefinition, TiledRaster, WorldData } from '../../core';
 import { parseTileKey, type TileKey } from '../../core';
 import type { Camera2D } from '../Camera2D';
-import type { LensDefinition } from '../lenses/Lens';
+import type { DisplayRange, LensDefinition } from '../lenses/Lens';
 import { FINAL_LENS } from '../lenses/lenses';
 import { createProgram } from './glUtils';
+
+/** Estado de exibição por frame: exagero vertical + faixa REAL do relevo. */
+export interface TerrainView {
+  zFactor: number;
+  displayRange: DisplayRange;
+}
 
 /**
  * Passada de terreno (README §6/§6.1): o heightmap vive numa textura R16UI
@@ -41,7 +47,10 @@ uniform float u_seaLevel;     // cota do oceano global (m); MUITO negativo = des
 uniform float u_biomeVisible; // Outliner ∧ lente: 1 = biomas visíveis
 uniform float u_waterVisible; // Outliner ∧ lente: 1 = água visível
 uniform float u_useLensRamp;  // 1 = cor vem da rampa da lente
-uniform float u_hillshade;    // 1 = relevo sombreado (lentes podem desligar)
+uniform float u_hillshade;    // intensidade do sombreado (0..1) — lente decide
+uniform float u_zFactor;      // exagero vertical do hillshade (P0-3)
+uniform vec2 u_dispRange;     // faixa de EXIBIÇÃO em m (P0-4) — u_range é só
+                              // a decodificação do uint16 (armazenamento)
 
 in vec2 v_world;
 out vec4 outColor;
@@ -61,13 +70,15 @@ float heightAt(vec2 cell) {
   return u_range.x + (u16 / 65535.0) * (u_range.y - u_range.x);
 }
 
-// Rampa hipsométrica: batimetria abaixo de 0 m, verde → marrom → neve acima.
+// Rampa hipsométrica normalizada pelo relevo REAL (u_dispRange): com o
+// heightRange de armazenamento aqui, ±40 m de relevo viravam verde chapado.
+// ESPELHADA em render/shading.ts (teste de percepção P0-8).
 vec3 ramp(float h) {
   if (h < 0.0) {
-    float b = clamp(h / min(u_range.x, -1.0), 0.0, 1.0);
+    float b = clamp(h / min(u_dispRange.x, -1.0), 0.0, 1.0);
     return mix(vec3(0.35, 0.42, 0.48), vec3(0.16, 0.22, 0.30), b);
   }
-  float t = clamp(h / max(u_range.y, 1.0), 0.0, 1.0);
+  float t = clamp(h / max(u_dispRange.y, 1.0), 0.0, 1.0);
   vec3 c1 = vec3(0.32, 0.46, 0.26);
   vec3 c2 = vec3(0.55, 0.55, 0.32);
   vec3 c3 = vec3(0.52, 0.42, 0.30);
@@ -88,20 +99,26 @@ void main() {
   float hR = heightAt(cell + vec2(1.0, 0.0));
   float hD = heightAt(cell + vec2(0.0, -1.0));
   float hU = heightAt(cell + vec2(0.0, 1.0));
-  vec3 n = normalize(vec3(-(hR - hL) / (2.0 * u_res), -(hU - hD) / (2.0 * u_res), 1.0));
+  // z-factor (P0-3): exagero vertical — 75 m de relevo em 3 km rendem 1,4°
+  // de gradiente físico; sem exagero o hillshade varia 2% e é invisível.
+  // ESPELHADO em render/shading.ts (teste de percepção P0-8).
+  vec3 n = normalize(vec3(
+      -(hR - hL) * u_zFactor / (2.0 * u_res),
+      -(hU - hD) * u_zFactor / (2.0 * u_res),
+      1.0));
 
   // Sol na convenção cartográfica: azimute 315° (noroeste), elevação 45°
   // (README §6.1) — com o sol vindo de outro lado, o cérebro inverte
   // montanhas e vales.
   vec3 sun = normalize(vec3(-0.5, 0.5, 0.7071));
   float lambert = max(dot(n, sun), 0.0);
-  // lentes podem desligar o hillshade (gradiente puro, ex.: Altitude)
-  float shade = u_hillshade > 0.5 ? (0.4 + 0.6 * lambert) : 1.0;
+  // intensidade do sombreado vem da lente (0 = cor pura, 1 = pleno)
+  float shade = mix(1.0, 0.4 + 0.6 * lambert, u_hillshade);
 
   // cor base: rampa padrão ou a rampa da LENTE ativa (só exibição)
   vec3 base;
   if (u_useLensRamp > 0.5) {
-    float t = clamp((h - u_range.x) / max(u_range.y - u_range.x, 1.0), 0.0, 1.0);
+    float t = clamp((h - u_dispRange.x) / max(u_dispRange.y - u_dispRange.x, 0.001), 0.0, 1.0);
     base = texelFetch(u_lensRamp, ivec2(int(t * 255.0 + 0.5), 0), 0).rgb;
   } else {
     base = ramp(h);
@@ -113,7 +130,7 @@ void main() {
   uint biomeId = texelFetch(u_biome, biomeIdx, 0).r;
   if (biomeId > 0u && u_biomeVisible > 0.5) {
     vec3 biomeColor = texelFetch(u_palette, ivec2(int(biomeId), 0), 0).rgb;
-    float biomeShade = u_hillshade > 0.5 ? (0.5 + 0.5 * lambert) : 1.0;
+    float biomeShade = mix(1.0, 0.5 + 0.5 * lambert, u_hillshade);
     color = mix(color, biomeColor * biomeShade, 0.45);
   }
 
@@ -132,7 +149,7 @@ void main() {
     vec3 deep = vec3(0.07, 0.20, 0.36);
     vec3 water = mix(shallow, deep, clamp(depth / 40.0, 0.0, 1.0));
     float shore = clamp(depth / 1.5, 0.0, 1.0); // transição suave na margem
-    float waterShade = u_hillshade > 0.5 ? (0.7 + 0.3 * lambert) : 1.0;
+    float waterShade = mix(1.0, 0.7 + 0.3 * lambert, u_hillshade);
     color = mix(color, water * waterShade, 0.35 + 0.6 * shore);
   }
 
@@ -156,9 +173,13 @@ export class TerrainRenderer {
     waterVisible: WebGLUniformLocation | null;
     useLensRamp: WebGLUniformLocation | null;
     hillshade: WebGLUniformLocation | null;
+    zFactor: WebGLUniformLocation | null;
+    dispRange: WebGLUniformLocation | null;
   };
   private readonly lensRampTexture: WebGLTexture;
   private lens: LensDefinition = FINAL_LENS;
+  /** faixa usada na última rampa enviada — evita re-upload por frame */
+  private lensRampRange: DisplayRange | null = null;
   private readonly biomeTexture: WebGLTexture;
   private readonly paletteTexture: WebGLTexture;
   /** buffer 512² reutilizado para regiões de tiles não alocados */
@@ -193,6 +214,8 @@ export class TerrainRenderer {
       waterVisible: gl.getUniformLocation(this.program, 'u_waterVisible'),
       useLensRamp: gl.getUniformLocation(this.program, 'u_useLensRamp'),
       hillshade: gl.getUniformLocation(this.program, 'u_hillshade'),
+      zFactor: gl.getUniformLocation(this.program, 'u_zFactor'),
+      dispRange: gl.getUniformLocation(this.program, 'u_dispRange'),
     };
     // unidades de textura fixas: 0 = relevo, 1 = água, 2 = biomas,
     // 3 = paleta, 4 = rampa da lente
@@ -277,22 +300,46 @@ export class TerrainRenderer {
   /** Troca a lente de visualização — só exibição, nunca dados. */
   setLens(lens: LensDefinition): void {
     this.lens = lens;
-    if (!lens.buildRamp) return;
-    const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, this.lensRampTexture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    gl.texSubImage2D(
-      gl.TEXTURE_2D,
-      0,
-      0,
-      0,
-      256,
-      1,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      lens.buildRamp(this.world.config.heightRange),
-    );
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
+    this.lensRampRange = null; // força reconstrução no próximo render
+  }
+
+  /** Resolve a faixa de exibição da lente e mantém a textura da rampa em dia. */
+  private ensureLensRamp(view: TerrainView): DisplayRange {
+    const lens = this.lens;
+    const storage = this.world.config.heightRange;
+    const display: DisplayRange =
+      lens.rangeSource === 'storage'
+        ? { min_m: storage.min_m, max_m: storage.max_m }
+        : lens.rangeSource === 'fixed'
+          ? (lens.fixedRange ?? view.displayRange)
+          : view.displayRange;
+
+    if (lens.buildRamp) {
+      const span = Math.max(display.max_m - display.min_m, 1e-3);
+      const stale =
+        !this.lensRampRange ||
+        Math.abs(this.lensRampRange.min_m - display.min_m) > span * 0.005 ||
+        Math.abs(this.lensRampRange.max_m - display.max_m) > span * 0.005;
+      if (stale) {
+        const gl = this.gl;
+        gl.bindTexture(gl.TEXTURE_2D, this.lensRampTexture);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+        gl.texSubImage2D(
+          gl.TEXTURE_2D,
+          0,
+          0,
+          0,
+          256,
+          1,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          lens.buildRamp(display),
+        );
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
+        this.lensRampRange = { ...display };
+      }
+    }
+    return display;
   }
 
   /** Reenvia a paleta de cores dos biomas (id → cor). */
@@ -351,8 +398,9 @@ export class TerrainRenderer {
     }
   }
 
-  render(camera: Camera2D): void {
+  render(camera: Camera2D, view: TerrainView): void {
     const gl = this.gl;
+    const display = this.ensureLensRamp(view);
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
     gl.activeTexture(gl.TEXTURE0);
@@ -388,7 +436,9 @@ export class TerrainRenderer {
     gl.uniform1f(this.uniforms.biomeVisible, this.world.biomes.visible && lens.showBiomes ? 1 : 0);
     gl.uniform1f(this.uniforms.waterVisible, this.world.water.visible && lens.showWater ? 1 : 0);
     gl.uniform1f(this.uniforms.useLensRamp, lens.buildRamp ? 1 : 0);
-    gl.uniform1f(this.uniforms.hillshade, lens.hillshade ? 1 : 0);
+    gl.uniform1f(this.uniforms.hillshade, lens.hillshade);
+    gl.uniform1f(this.uniforms.zFactor, view.zFactor);
+    gl.uniform2f(this.uniforms.dispRange, display.min_m, display.max_m);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.bindVertexArray(null);

@@ -1,18 +1,25 @@
 import type { ContourCache, WorldData } from '../../core';
 import type { Camera2D } from '../Camera2D';
 import { formatMeters } from '../format';
+import { niceStep } from './RulerOverlay';
 
 /**
  * Desenho das curvas de nível (README §6.2): lê o ContourCache (derivado,
- * por tile) e desenha só os tiles visíveis. Intervalo adaptativo ao zoom:
- * 100 m → 20 m → 5 m → 1 m. Índice a cada 5ª linha: mais grossa, com rótulo.
+ * por tile) e desenha só os tiles visíveis. Índice a cada 5ª linha: mais
+ * grossa, com rótulo.
  */
 
-export function contourIntervalForZoom(metersPerPixel: number): number {
-  if (metersPerPixel > 10) return 100;
-  if (metersPerPixel > 2.5) return 20;
-  if (metersPerPixel > 0.5) return 5;
-  return 1;
+/**
+ * Intervalo pelo RELEVO REAL do mapa, com piso pelo zoom (P0-5). Antes o
+ * intervalo era só do zoom: 100 m num mapa de ±40 m desenhava exatamente
+ * UMA curva. Alvo: ~15 curvas cobrindo o relevo.
+ */
+export function contourInterval(metersPerPixel: number, relief_m: number): number {
+  const byRelief = niceStep(Math.max(relief_m, 1) / 15);
+  // piso FRACO pelo zoom: muito afastado, menos curvas (relevo típico é
+  // suave — um piso agressivo faria o zoom mandar de novo, como antes)
+  const byZoom = niceStep(Math.max(metersPerPixel * 0.1, 0.01));
+  return Math.max(byRelief, byZoom);
 }
 
 const STYLE = {
@@ -26,10 +33,10 @@ export class ContourOverlay {
     private readonly cache: ContourCache,
   ) {}
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera2D): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera2D, interval_m: number): void {
     const raster = this.world.terrain.raster;
     const res = this.world.config.terrainResolution_m;
-    const interval = contourIntervalForZoom(camera.metersPerPixel);
+    const interval = interval_m;
     const { width, height } = camera.viewportSize;
 
     // Faixa de tiles visível (world Y cresce para cima; tela para baixo).

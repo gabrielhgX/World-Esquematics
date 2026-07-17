@@ -18,6 +18,9 @@ export const DEFAULT_HISTORY_BUDGET_BYTES = 512_000_000;
 export class History {
   private readonly undoStack: HistoryEntry[] = [];
   private redoStack: Command[] = [];
+  /** total CORRENTE das duas pilhas — somado/subtraído nas mutações (P1-1):
+   * recalcular por varredura a cada push era O(n²) no caminho quente. */
+  private totalBytes = 0;
 
   constructor(readonly budgetBytes: number = DEFAULT_HISTORY_BUDGET_BYTES) {}
 
@@ -27,17 +30,21 @@ export class History {
    * `mergeWith`; o traço é fechado por `sealTop()` (mouseup).
    */
   push(command: Command, coalesce = false): void {
+    for (const dropped of this.redoStack) this.totalBytes -= dropped.memoryCost;
     this.redoStack = [];
     const top = this.undoStack[this.undoStack.length - 1];
     if (coalesce && top?.open && top.command.mergeWith) {
+      const costBeforeMerge = top.command.memoryCost;
       const merged = top.command.mergeWith(command);
       if (merged) {
         top.command = merged;
+        this.totalBytes += merged.memoryCost - costBeforeMerge;
         this.enforceBudget();
         return;
       }
     }
     this.undoStack.push({ command, open: coalesce });
+    this.totalBytes += command.memoryCost;
     this.enforceBudget();
   }
 
@@ -80,23 +87,22 @@ export class History {
     return this.redoStack.length;
   }
 
-  /** Soma dos custos declarados pelos comandos das duas pilhas. */
+  /** Soma dos custos declarados pelos comandos das duas pilhas (O(1)). */
   get usedBytes(): number {
-    let total = 0;
-    for (const entry of this.undoStack) total += entry.command.memoryCost;
-    for (const command of this.redoStack) total += command.memoryCost;
-    return total;
+    return this.totalBytes;
   }
 
   clear(): void {
     this.undoStack.length = 0;
     this.redoStack = [];
+    this.totalBytes = 0;
   }
 
   /** Descarta os mais antigos até caber no orçamento (mantém ao menos o último). */
   private enforceBudget(): void {
-    while (this.usedBytes > this.budgetBytes && this.undoStack.length > 1) {
-      this.undoStack.shift();
+    while (this.totalBytes > this.budgetBytes && this.undoStack.length > 1) {
+      const dropped = this.undoStack.shift();
+      if (dropped) this.totalBytes -= dropped.command.memoryCost;
     }
   }
 }
