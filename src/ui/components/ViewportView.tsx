@@ -12,7 +12,7 @@ import { BiomeTool, type BiomeSettings } from '../../tools/BiomeTool';
 import { ObjectTool, type ObjectSettings } from '../../tools/ObjectTool';
 import { MeasureTool } from '../../tools/MeasureTool';
 import type { ProjectSession } from '../session';
-import type { ActiveToolName } from './Toolbar';
+import type { ActiveToolName, ViewSettings } from './Toolbar';
 
 interface Props {
   session: ProjectSession;
@@ -26,6 +26,7 @@ interface Props {
   objectSettings: ObjectSettings;
   /** lente de visualização ativa — só muda a exibição */
   lens: LensDefinition;
+  viewSettings: ViewSettings;
   onCursorMove?: (worldPt: Vec2 | null) => void;
   /** expõe o Viewport imperativo (captura de thumbnail no save) */
   apiRef?: MutableRefObject<Viewport | null>;
@@ -54,6 +55,7 @@ export function ViewportView({
   biomeSettings,
   objectSettings,
   lens,
+  viewSettings,
   onCursorMove,
   apiRef,
 }: Props) {
@@ -145,6 +147,13 @@ export function ViewportView({
   useEffect(() => {
     viewportRef.current?.setLens(lens);
   }, [lens, session]);
+  useEffect(() => {
+    viewportRef.current?.setDisplaySettings({
+      zFactor: viewSettings.zFactor,
+      contours: viewSettings.contours,
+      contourInterval_m: viewSettings.contourInterval,
+    });
+  }, [viewSettings, session]);
 
   return <div className="viewport-host" ref={hostRef} />;
 }

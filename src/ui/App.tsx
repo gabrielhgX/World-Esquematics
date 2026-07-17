@@ -21,7 +21,7 @@ import { Onboarding } from './components/Onboarding';
 import { Outliner } from './components/Outliner';
 import { ViewportView } from './components/ViewportView';
 import { StatusBar } from './components/StatusBar';
-import { Toolbar, type ActiveToolName } from './components/Toolbar';
+import { Toolbar, type ActiveToolName, type ViewSettings } from './components/Toolbar';
 import { createProjectSession, createSessionFromWorld, type ProjectSession } from './session';
 
 export default function App({ platform }: { platform: Platform }) {
@@ -46,6 +46,11 @@ export default function App({ platform }: { platform: Platform }) {
   const [historyTick, setHistoryTick] = useState(0);
   const [exportTick, setExportTick] = useState(0);
   const [lensId, setLensId] = useState('final');
+  const [viewSettings, setViewSettings] = useState<ViewSettings>({
+    zFactor: 'auto',
+    contours: true,
+    contourInterval: 'auto',
+  });
   const [autosaveInfo, setAutosaveInfo] = useState<{ projectName: string; savedAt: number } | null>(
     null,
   );
@@ -276,6 +281,8 @@ export default function App({ platform }: { platform: Platform }) {
         }}
         lensId={lensId}
         onLensChange={setLensId}
+        viewSettings={viewSettings}
+        onViewSettingsChange={setViewSettings}
         historyTick={historyTick}
       />
       <div className="main-row">
@@ -291,6 +298,7 @@ export default function App({ platform }: { platform: Platform }) {
           biomeSettings={biomeSettings}
           objectSettings={objectSettings}
           lens={getLens(lensId)}
+          viewSettings={viewSettings}
           onCursorMove={setCursor}
           apiRef={viewportRef}
         />
