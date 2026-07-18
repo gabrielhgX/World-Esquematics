@@ -104,7 +104,6 @@ export function WaterControls({ session, settings, onSettingsChange, historyTick
               />
             </label>
           )}
-          <span className="hint">Enter conclui · Esc cancela</span>
         </>
       )}
 

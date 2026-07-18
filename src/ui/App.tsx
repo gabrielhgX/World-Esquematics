@@ -22,7 +22,7 @@ import { Outliner } from './components/Outliner';
 import { ViewControls } from './components/ViewControls';
 import { ViewportView } from './components/ViewportView';
 import { StatusBar } from './components/StatusBar';
-import { Toolbar, type ActiveToolName, type ViewSettings } from './components/Toolbar';
+import { Toolbar, TOOL_HINTS, type ActiveToolName, type ViewSettings } from './components/Toolbar';
 import { createProjectSession, createSessionFromWorld, type ProjectSession } from './session';
 
 /** marca que o usuário já passou pela tela inicial ao menos uma vez (P2-5) */
@@ -348,6 +348,11 @@ export default function App({ platform }: { platform: Platform }) {
           viewSettings={viewSettings}
           onViewSettingsChange={setViewSettings}
         />
+        {TOOL_HINTS[activeTool] && (
+          <div className="tool-hint-toast" data-testid="tool-hint">
+            {TOOL_HINTS[activeTool]}
+          </div>
+        )}
         <Onboarding session={session} exportTick={exportTick} />
       </div>
       <StatusBar world={session.world} cursor={cursor} licenseLabel={licenseLabel} />

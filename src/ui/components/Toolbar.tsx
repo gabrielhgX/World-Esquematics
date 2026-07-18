@@ -26,6 +26,23 @@ export interface ViewSettings {
 export type ActiveToolName =
   'pan' | 'sculpt' | 'water' | 'road' | 'biome' | 'object' | 'region' | 'poi' | 'measure';
 
+/**
+ * Dica de cada ferramenta (P2-2): antes espremidas em 4 linhas de itálico
+ * DENTRO da toolbar; agora vão para um toast no rodapé do viewport, uma
+ * linha só. '' = ferramenta sem dica.
+ */
+export const TOOL_HINTS: Record<ActiveToolName, string> = {
+  pan: '',
+  sculpt: 'Arraste para esculpir · segure o botão para fluxo contínuo',
+  water: 'Lago: clique numa depressão · Rio: cliques + Enter · Esc cancela',
+  road: 'Clique-arrastar cria a curva · Enter conclui · Esc cancela',
+  biome: 'Cliques desenham o polígono · Enter fecha · Esc cancela',
+  object: 'Clique posiciona o objeto',
+  region: 'Cliques desenham o polígono · Enter fecha · Esc cancela',
+  poi: 'Clique posiciona o POI',
+  measure: 'Cliques medem distância plana e real · Enter fecha o polígono (área) · Esc limpa',
+};
+
 interface Props {
   session: ProjectSession;
   activeTool: ActiveToolName;
