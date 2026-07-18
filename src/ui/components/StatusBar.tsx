@@ -1,6 +1,6 @@
 import { deriveGrid, estimateTerrainBytes, type WorldData } from '../../core';
 import type { Vec2 } from '../../render/Camera2D';
-import { formatMeters } from '../../render/format';
+import { formatAltitude, formatMeters } from '../../render/format';
 
 interface Props {
   world: WorldData;
@@ -16,10 +16,10 @@ export function StatusBar({ world, cursor, licenseLabel }: Props) {
   let cursorText = '—';
   if (cursor) {
     const height = world.terrain.getHeight(cursor.x, cursor.y);
-    cursorText = `L ${formatMeters(cursor.x)} · N ${formatMeters(cursor.y)} · alt ${formatMeters(height)}`;
+    cursorText = `L ${formatMeters(cursor.x)} · N ${formatMeters(cursor.y)} · alt ${formatAltitude(height)}`;
     // profundidade DERIVADA (D8): surface − altura; ≤ 0 = terra seca
     const depth = world.water.surfaceAt(cursor.x, cursor.y) - height;
-    if (depth > 0) cursorText += ` · prof ${formatMeters(depth)}`;
+    if (depth > 0) cursorText += ` · prof ${formatAltitude(depth)}`;
   }
 
   return (
