@@ -9,8 +9,22 @@
  */
 export const UNREAL_LANDSCAPE_SIZES = [127, 253, 505, 1009, 2017, 4033, 8129] as const;
 
-/** Tamanho válido mais próximo do pedido (empate → o maior, sem perda). */
-export function nearestLandscapeSize(vertices: number): number {
+/**
+ * Tamanho válido para o grid pedido.
+ *
+ * Padrão 'up' (P1-6): o MENOR tamanho ≥ pedido — reamostrar para cima não
+ * perde dado; o "mais próximo" podia reduzir a resolução em silêncio (3000
+ * → 2017 = −33% do que o usuário escolheu de propósito). 'nearest' fica
+ * como opção EXPLÍCITA de redução. Acima de 8129 não há opção: reduz, e o
+ * exportador avisa.
+ */
+export function nearestLandscapeSize(vertices: number, mode: 'up' | 'nearest' = 'up'): number {
+  if (mode === 'up') {
+    for (const size of UNREAL_LANDSCAPE_SIZES) {
+      if (size >= vertices) return size;
+    }
+    return UNREAL_LANDSCAPE_SIZES[UNREAL_LANDSCAPE_SIZES.length - 1];
+  }
   let best: number = UNREAL_LANDSCAPE_SIZES[0];
   for (const size of UNREAL_LANDSCAPE_SIZES) {
     const currentDelta = Math.abs(size - vertices);

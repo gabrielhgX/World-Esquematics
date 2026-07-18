@@ -1,5 +1,5 @@
 import { BiomeRasterCache, scatterVegetationForTile, type WorldData } from '../../../core';
-import { positionToUE, yawToUE, type UEVector } from './unrealSpace';
+import { northSpan_m, positionToUE, yawToUE, type UEVector } from './unrealSpace';
 
 /**
  * Objetos para a Unreal (README §9.1: "JSON/CSV: type, x, y, z, yaw, scale").
@@ -25,7 +25,7 @@ export interface ManualObjectUE {
 }
 
 export function exportManualObjects(world: WorldData): ManualObjectUE[] {
-  const extentNS = world.config.extent.height_m;
+  const extentNS = northSpan_m(world);
   return world.objects.objects.map((object) => ({
     type: object.type,
     position: positionToUE(
@@ -50,7 +50,7 @@ export const SCATTER_CSV_HEADER = 'type,x,y,z,yaw,scale';
 export function exportScatterCsv(world: WorldData): { csv: string; count: number } {
   const grid = world.terrain.raster;
   const res = world.config.terrainResolution_m;
-  const extentNS = world.config.extent.height_m;
+  const extentNS = northSpan_m(world);
   const cache = new BiomeRasterCache(grid.widthCells, grid.heightCells, res);
   cache.sync(world.biomes);
   const raster = cache.biomeRaster;

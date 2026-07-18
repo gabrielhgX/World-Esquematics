@@ -200,6 +200,12 @@ export class TerrainRenderer {
           `de textura desta GPU (${maxSize}). Aumente os metros por célula.`,
       );
     }
+    // P1-2 (DEFERIDO): as 3 texturas abaixo são de GRADE CHEIA (relevo R16UI +
+    // água R16UI + bioma R8UI ≈ 80 MB em 4000², 320 MB em 8000²) — a GPU não é
+    // esparsa como o TiledRaster (D4). Não é crítico em 4000², mas limita o
+    // teto do §1.1. Plano quando o profiler mandar: atlas de tiles físico +
+    // textura de indireção (page table), alocando só os tiles vivos. É troca
+    // de implementação isolada nesta classe — a interface do renderer não muda.
 
     this.program = createProgram(gl, VERTEX_SHADER, FRAGMENT_SHADER);
     this.uniforms = {

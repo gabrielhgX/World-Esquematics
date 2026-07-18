@@ -55,13 +55,19 @@ export function buildLandscapePlan(world: WorldData): LandscapePlan {
   const zScale = (span_m / 512) * 100;
   const locationZ_m = config.heightRange.min_m + 256 * (zScale / 100);
 
+  // P1-5 — convenção ÚNICA com o renderer (amostra no canto): a amostra i
+  // do grid vive em x = i·res, então o span REAL amostrado é (N−1)·res, não
+  // a extensão N·res. Usar a extensão aqui esticava o landscape em 1 célula
+  // e desalinhava objetos/estradas até ~1 célula na borda leste.
+  const spanX_m = (raster.widthCells - 1) * config.terrainResolution_m;
+  const spanY_m = (raster.heightCells - 1) * config.terrainResolution_m;
   return {
     r16,
     resolutionX: dstW,
     resolutionY: dstH,
     scale: {
-      x: (config.extent.width_m / (dstW - 1)) * 100,
-      y: (config.extent.height_m / (dstH - 1)) * 100,
+      x: (spanX_m / (dstW - 1)) * 100,
+      y: (spanY_m / (dstH - 1)) * 100,
       z: zScale,
     },
     location: { x: 0, y: 0, z: locationZ_m * 100 },
