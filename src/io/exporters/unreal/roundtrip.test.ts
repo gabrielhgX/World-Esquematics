@@ -143,6 +143,8 @@ const fileOf = async (path: string) => {
 const jsonOf = async (path: string) => JSON.parse(new TextDecoder().decode(await fileOf(path)));
 
 const W = 505;
+// P1-5: o flip N-S usa o VÃO amostrado (heightCells−1)·res, não a extensão
+const NORTH_SPAN = 504 * 4; // = 2016 m
 const pixel16 = (r16: Uint8Array, col: number, row: number) =>
   new DataView(r16.buffer, r16.byteOffset).getUint16((row * W + col) * 2, true);
 
@@ -201,13 +203,13 @@ describe('round-trip "L" — exportador Unreal completo (item 29)', () => {
     const objects = await jsonOf('objects.json');
     const tower = objects.objects[0];
     expect(tower.position.x).toBeCloseTo(400 * 100, 6);
-    expect(tower.position.y).toBeCloseTo((EXTENT - 1800) * 100, 6);
+    expect(tower.position.y).toBeCloseTo((NORTH_SPAN - 1800) * 100, 6);
     expect(Math.abs(tower.position.z)).toBeLessThan(1); // terreno plano ali
     expect(tower.yaw_deg).toBe(-30);
     expect(tower.scale.z).toBe(2);
 
     const metadata = await jsonOf('metadata.json');
-    expect(metadata.pois[0].position.y).toBeCloseTo((EXTENT - 500) * 100, 6);
+    expect(metadata.pois[0].position.y).toBeCloseTo((NORTH_SPAN - 500) * 100, 6);
     expect(metadata.regions[0].name).toBe('Reino');
   });
 
@@ -220,8 +222,8 @@ describe('round-trip "L" — exportador Unreal completo (item 29)', () => {
       const [, x, y] = row.split(',').map(Number);
       expect(x).toBeGreaterThanOrEqual(800 * 100);
       expect(x).toBeLessThanOrEqual(1600 * 100);
-      expect(y).toBeGreaterThanOrEqual((EXTENT - 1600) * 100);
-      expect(y).toBeLessThanOrEqual((EXTENT - 800) * 100);
+      expect(y).toBeGreaterThanOrEqual((NORTH_SPAN - 1600) * 100);
+      expect(y).toBeLessThanOrEqual((NORTH_SPAN - 800) * 100);
     }
     // mesmo mundo ⇒ mesmos bytes
     const again = await exporter.export(makeLWorld());
@@ -236,7 +238,7 @@ describe('round-trip "L" — exportador Unreal completo (item 29)', () => {
     expect(splines.splines.length).toBe(1);
     const road = splines.splines[0];
     expect(road.width_uu).toBe(800);
-    expect(road.points[0].y).toBeCloseTo((EXTENT - 400) * 100, 6);
+    expect(road.points[0].y).toBeCloseTo((NORTH_SPAN - 400) * 100, 6);
     expect(Math.abs(road.points[0].z)).toBeLessThan(1);
 
     const water = await jsonOf('water.json');
@@ -287,7 +289,7 @@ describe.skipIf(!hasPython)('plugin importador em --dry-run (item 28)', () => {
     expect(plan.counts.spawns).toBe(1 + manifest.counts.scatterInstances + 1);
     const tower = plan.spawns.find((s: { kind: string }) => s.kind === 'object');
     expect(tower.yaw_deg).toBe(-30);
-    expect(tower.location.y).toBeCloseTo((EXTENT - 1800) * 100, 6);
+    expect(tower.location.y).toBeCloseTo((NORTH_SPAN - 1800) * 100, 6);
     const poi = plan.spawns.find((s: { kind: string }) => s.kind === 'poi');
     expect(poi.label).toBe('★ Capital');
 

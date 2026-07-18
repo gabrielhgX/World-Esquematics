@@ -17,6 +17,13 @@ import { RoadControls } from './RoadControls';
 import { MeasureControls, POIControls, RegionControls } from './VectorControls';
 import { BiomeControls, ObjectControls } from './BiomeObjectControls';
 
+/** Ajustes de exibição (P0-3/P0-7): z-factor do hillshade e curvas de nível. */
+export interface ViewSettings {
+  zFactor: number | 'auto';
+  contours: boolean;
+  contourInterval: number | 'auto';
+}
+
 export type ActiveToolName =
   'pan' | 'sculpt' | 'water' | 'road' | 'biome' | 'object' | 'region' | 'poi' | 'measure';
 
@@ -49,6 +56,8 @@ interface Props {
   /** lente de visualização ativa (só exibição — nunca dados) */
   lensId: string;
   onLensChange: (lensId: string) => void;
+  viewSettings: ViewSettings;
+  onViewSettingsChange: (settings: ViewSettings) => void;
   /** muda a cada comando/undo/redo — mantém os botões sincronizados */
   historyTick: number;
 }
@@ -89,6 +98,8 @@ export function Toolbar({
   onExportedUnreal,
   lensId,
   onLensChange,
+  viewSettings,
+  onViewSettingsChange,
   historyTick,
 }: Props) {
   const { history, bus } = session;
@@ -198,6 +209,58 @@ export function Toolbar({
             ))}
           </select>
         </label>
+        <label
+          className="lens-picker"
+          title="Exagero vertical do sombreado — Auto mira o relevo real do mapa"
+        >
+          Relevo
+          <select
+            value={String(viewSettings.zFactor)}
+            onChange={(e) =>
+              onViewSettingsChange({
+                ...viewSettings,
+                zFactor: e.target.value === 'auto' ? 'auto' : Number(e.target.value),
+              })
+            }
+            data-testid="zfactor-select"
+          >
+            <option value="auto">Auto</option>
+            {[1, 2, 4, 8, 12, 16, 20].map((z) => (
+              <option key={z} value={z}>
+                ×{z}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="lens-picker" title="Curvas de nível (intervalo Auto segue o relevo)">
+          <input
+            type="checkbox"
+            checked={viewSettings.contours}
+            onChange={(e) => onViewSettingsChange({ ...viewSettings, contours: e.target.checked })}
+            data-testid="contours-toggle"
+          />
+          Curvas
+        </label>
+        {viewSettings.contours && (
+          <select
+            value={String(viewSettings.contourInterval)}
+            onChange={(e) =>
+              onViewSettingsChange({
+                ...viewSettings,
+                contourInterval: e.target.value === 'auto' ? 'auto' : Number(e.target.value),
+              })
+            }
+            title="Intervalo das curvas de nível"
+            data-testid="contour-interval"
+          >
+            <option value="auto">Auto</option>
+            {[1, 2, 5, 10, 20, 50, 100].map((v) => (
+              <option key={v} value={v}>
+                {v} m
+              </option>
+            ))}
+          </select>
+        )}
         <button onClick={handleSave} disabled={saving} title="Salvar no navegador (§10.2)">
           {saving ? 'Salvando…' : saved ? 'Salvo ✓' : 'Salvar'}
         </button>

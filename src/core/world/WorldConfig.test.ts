@@ -77,4 +77,23 @@ describe('WorldConfig (README §1)', () => {
     expect(issues.some((i) => i.severity === 'warning')).toBe(true);
     expect(deriveGrid(config).widthCells).toBe(4001); // ceil cobre a extensão
   });
+
+  it('bloqueia grid acima do limite de textura da GPU (P1-3)', () => {
+    // GPU integrada típica: MAX_TEXTURE_SIZE = 4096; o grid 4000² passa,
+    // mas 16 km @ 2 m (8000²) não abriria nessa máquina.
+    const ok = validateWorldConfig(base, MEMORY_BUDGET_BYTES.web, 4096);
+    expect(ok.some((i) => i.severity === 'error')).toBe(false);
+
+    const fine = { ...base, terrainResolution_m: 2 }; // grid 8000²
+    const blocked = validateWorldConfig(fine, MEMORY_BUDGET_BYTES.web, 4096);
+    const err = blocked.find((i) => i.severity === 'error');
+    expect(err?.message).toMatch(/limite de textura/);
+    expect(err?.message).toMatch(/4096/);
+  });
+
+  it('sem maxTextureSize a checagem de GPU não roda (Node/testes)', () => {
+    const fine = { ...base, terrainResolution_m: 2 };
+    const issues = validateWorldConfig(fine, MEMORY_BUDGET_BYTES.web);
+    expect(issues.some((i) => i.message.includes('textura'))).toBe(false);
+  });
 });

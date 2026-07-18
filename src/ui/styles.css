@@ -35,7 +35,8 @@ body {
 
 .toolbar {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap; /* contenção mínima do P2-1: nunca estoura a janela */
+  gap: 8px 16px;
   align-items: center;
   padding: 6px 12px;
   background: #232528;

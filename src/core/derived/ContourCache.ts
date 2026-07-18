@@ -56,6 +56,26 @@ export class ContourCache {
 
   private compute(tx: number, ty: number, interval_m: number): TileContours {
     const raster = this.terrain.raster;
+
+    // P1-4: pula o marching squares (O(512²)) quando NENHUM nível cruza o
+    // tile. A faixa considerada inclui os vizinhos leste/norte porque a
+    // costura lê os cantos deles — assim o skip nunca some com uma curva.
+    let min_m = Infinity;
+    let max_m = -Infinity;
+    for (const [dx, dy] of [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ] as const) {
+      const r = this.terrain.tileHeightRange(tx + dx, ty + dy);
+      if (r.min_m < min_m) min_m = r.min_m;
+      if (r.max_m > max_m) max_m = r.max_m;
+    }
+    if (Math.floor(max_m / interval_m) < Math.ceil(min_m / interval_m)) {
+      return { levels: [] };
+    }
+
     const T = raster.tileSize;
     const cellX0 = tx * T;
     const cellY0 = ty * T;

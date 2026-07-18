@@ -84,6 +84,14 @@ export class UnrealExporter implements Exporter {
         `LocationZ ${(landscape.location.z / 100).toFixed(1)} m · ` +
         `escala XY ${(landscape.scale.x / 100).toFixed(2)} m/quad.`,
     );
+    // P1-7: quads fracionários funcionam, mas complicam tiling de material
+    const res = config.terrainResolution_m;
+    if (Math.abs(landscape.scale.x / 100 - res) > 1e-9) {
+      notes.push(
+        `Dica: extensão de ${landscape.resolutionX * res} m @ ${res} m/célula cai exata ` +
+          `no Landscape ${landscape.resolutionX} (quads redondos de ${res} m).`,
+      );
+    }
 
     // 2. Weightmaps (1 PNG 8-bit por bioma, feather aplicado)
     const weightmaps = computeBiomeWeightmaps(world, landscape.resolutionX, landscape.resolutionY);

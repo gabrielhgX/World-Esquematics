@@ -19,6 +19,8 @@ import { parseTileKey } from '../raster/TiledRaster';
 export class SculptCommand implements Command {
   private readonly before = new Map<TileKey, Uint16Array | null>();
   private readonly after = new Map<TileKey, Uint16Array>();
+  /** custo CACHEADO: memoryCost roda no caminho quente do History (P1-1) */
+  private costBytes = 0;
 
   /** kernel do dab; consumido na primeira aplicação */
   private operation: ((raster: TiledRaster<Uint16Array>) => void) | null;
@@ -41,7 +43,9 @@ export class SculptCommand implements Command {
         if (!this.before.has(key)) {
           const { tx, ty } = parseTileKey(key);
           const tile = raster.getTile(tx, ty);
-          this.before.set(key, tile ? tile.slice() : null);
+          const snapshot = tile ? tile.slice() : null;
+          this.before.set(key, snapshot);
+          if (snapshot) this.costBytes += snapshot.byteLength;
         }
       }
       this.operation(raster);
@@ -49,7 +53,11 @@ export class SculptCommand implements Command {
       for (const key of this.before.keys()) {
         const { tx, ty } = parseTileKey(key);
         const tile = raster.getTile(tx, ty);
-        if (tile) this.after.set(key, tile.slice());
+        if (tile) {
+          const snapshot = tile.slice();
+          this.after.set(key, snapshot);
+          this.costBytes += snapshot.byteLength;
+        }
       }
       return;
     }
@@ -73,20 +81,23 @@ export class SculptCommand implements Command {
   }
 
   get memoryCost(): number {
-    let bytes = 0;
-    for (const data of this.before.values()) bytes += data ? data.byteLength : 0;
-    for (const data of this.after.values()) bytes += data.byteLength;
-    return bytes;
+    return this.costBytes;
   }
 
   /** Coalescência por traço (README §5.1): ~100 eventos de mouse = UM comando. */
   mergeWith(next: Command): Command | null {
     if (!(next instanceof SculptCommand)) return null;
     for (const [key, data] of next.before) {
-      if (!this.before.has(key)) this.before.set(key, data);
+      if (!this.before.has(key)) {
+        this.before.set(key, data);
+        if (data) this.costBytes += data.byteLength;
+      }
     }
     for (const [key, data] of next.after) {
+      const previous = this.after.get(key);
+      if (previous) this.costBytes -= previous.byteLength;
       this.after.set(key, data);
+      this.costBytes += data.byteLength;
     }
     return this;
   }

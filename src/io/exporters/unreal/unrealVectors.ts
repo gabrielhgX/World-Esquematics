@@ -1,5 +1,5 @@
 import type { WorldData } from '../../../core';
-import { positionToUE, type UEVector } from './unrealSpace';
+import { northSpan_m, positionToUE, type UEVector } from './unrealSpace';
 
 /**
  * Vetores para a Unreal (README §9.1):
@@ -25,7 +25,7 @@ export interface RoadSplineUE {
 }
 
 export function exportRoadSplines(world: WorldData) {
-  const extentNS = world.config.extent.height_m;
+  const extentNS = northSpan_m(world);
   const at = (x: number, y: number) => positionToUE(x, y, world.terrain.getHeight(x, y), extentNS);
 
   const nodes = [...world.roads.nodes.values()].map((node) => ({
@@ -57,7 +57,7 @@ export function exportRoadSplines(world: WorldData) {
 }
 
 export function exportWater(world: WorldData) {
-  const extentNS = world.config.extent.height_m;
+  const extentNS = northSpan_m(world);
   const ring = (polygon: ReadonlyArray<readonly [number, number]>, z_m: number) =>
     polygon.map(([x, y]) => positionToUE(x, y, z_m, extentNS));
 
@@ -86,7 +86,7 @@ export function exportWater(world: WorldData) {
 }
 
 export function exportMetadata(world: WorldData) {
-  const extentNS = world.config.extent.height_m;
+  const extentNS = northSpan_m(world);
   return {
     regions: world.regions.regions.map((region) => ({
       id: region.id,

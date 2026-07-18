@@ -105,6 +105,8 @@ export function estimateTerrainBytes(
 export function validateWorldConfig(
   config: Pick<WorldConfig, 'projectName' | 'extent' | 'terrainResolution_m' | 'heightRange'>,
   budgetBytes: number,
+  /** limite de textura da GPU (P1-3): um grid maior que isto não renderiza */
+  maxTextureSize?: number,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
@@ -144,6 +146,23 @@ export function validateWorldConfig(
         `Heightmap de ${formatMB(bytes)} MB excede o orçamento da plataforma ` +
         `(${formatMB(budgetBytes)} MB). Reduza a extensão ou aumente os metros por célula.`,
     });
+  }
+
+  // P1-3: um grid maior que o limite de textura da GPU não renderiza — e um
+  // projeto criado numa máquina boa não abriria numa fraca. Bloqueia cedo,
+  // com o número real e a saída (reduzir extensão ou aumentar m/célula).
+  if (maxTextureSize !== undefined) {
+    const grid = deriveGrid(config);
+    if (grid.widthCells > maxTextureSize || grid.heightCells > maxTextureSize) {
+      const maxExtent = maxTextureSize * config.terrainResolution_m;
+      issues.push({
+        severity: 'error',
+        message:
+          `Grid ${grid.widthCells}×${grid.heightCells} excede o limite de textura ` +
+          `desta GPU (${maxTextureSize}). Reduza a extensão (≤ ${(maxExtent / 1000).toFixed(1)} km ` +
+          `nesta resolução) ou aumente os metros por célula.`,
+      });
+    }
   }
   return issues;
 }

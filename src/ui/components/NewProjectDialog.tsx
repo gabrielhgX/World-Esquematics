@@ -9,6 +9,7 @@ import {
   type WorldConfig,
 } from '../../core';
 import { EXAMPLE_WORLDS } from '../../examples/exampleWorlds';
+import { detectMaxTextureSize } from '../../render/gpuLimits';
 import type { ProjectSummary } from '../../platform/ProjectRepository';
 
 /**
@@ -58,7 +59,10 @@ export function NewProjectDialog({
     [projectName, widthKm, heightKm, resolution, minHeight, maxHeight],
   );
 
-  const issues = validateWorldConfig(config, MEMORY_BUDGET_BYTES.web);
+  // limite de textura da GPU sondado uma vez (P1-3): bloqueia grids que esta
+  // máquina não renderiza, com o número real e a saída.
+  const maxTextureSize = useMemo(() => detectMaxTextureSize(), []);
+  const issues = validateWorldConfig(config, MEMORY_BUDGET_BYTES.web, maxTextureSize);
   const hasErrors = issues.some((i) => i.severity === 'error');
   const grid = deriveGrid(config);
   const gridValid = Number.isFinite(grid.widthCells) && Number.isFinite(grid.heightCells);

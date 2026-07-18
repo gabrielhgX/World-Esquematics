@@ -56,4 +56,16 @@ export class TerrainLayer implements Layer {
   getHeightAtCell(cx: number, cy: number): number {
     return u16ToHeight(this.raster.get(cx, cy), this.heightRange);
   }
+
+  /**
+   * Min/max de um tile em METROS (lazy, via TiledRaster.tileStats). Usado
+   * para pular tiles onde nenhuma curva de nível passa (P1-4).
+   */
+  tileHeightRange(tx: number, ty: number): { min_m: number; max_m: number } {
+    const stats = this.raster.tileStats(tx, ty);
+    return {
+      min_m: u16ToHeight(stats.min, this.heightRange),
+      max_m: u16ToHeight(stats.max, this.heightRange),
+    };
+  }
 }
