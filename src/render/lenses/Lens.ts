@@ -43,6 +43,13 @@ export interface LensDefinition {
   fixedRange?: DisplayRange;
   /** intensidade do hillshade sobre a rampa: 0 = sem sombra, 1 = plena */
   hillshade: number;
+  /**
+   * Colore por DECLIVIDADE (P3-1) em vez de altura: o shader deriva o
+   * gradiente REAL (sem z-factor) e mapeia % de inclinação → verde/amarelo/
+   * vermelho. Ignora buildRamp na cor do terreno (a legenda usa a escala de
+   * declividade). Responde "dá para construir/passar estrada aqui?".
+   */
+  slope?: boolean;
   /** passadas do shader de terreno */
   showWater: boolean;
   showBiomes: boolean;

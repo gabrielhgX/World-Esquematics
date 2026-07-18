@@ -47,6 +47,7 @@ uniform float u_seaLevel;     // cota do oceano global (m); MUITO negativo = des
 uniform float u_biomeVisible; // Outliner ∧ lente: 1 = biomas visíveis
 uniform float u_waterVisible; // Outliner ∧ lente: 1 = água visível
 uniform float u_useLensRamp;  // 1 = cor vem da rampa da lente
+uniform float u_slopeMode;    // 1 = colore por declividade (P3-1)
 uniform float u_hillshade;    // intensidade do sombreado (0..1) — lente decide
 uniform float u_zFactor;      // exagero vertical do hillshade (P0-3)
 uniform vec2 u_dispRange;     // faixa de EXIBIÇÃO em m (P0-4) — u_range é só
@@ -115,9 +116,22 @@ void main() {
   // intensidade do sombreado vem da lente (0 = cor pura, 1 = pleno)
   float shade = mix(1.0, 0.4 + 0.6 * lambert, u_hillshade);
 
-  // cor base: rampa padrão ou a rampa da LENTE ativa (só exibição)
+  // cor base: DECLIVIDADE, rampa da lente, ou hipsométrica padrão
   vec3 base;
-  if (u_useLensRamp > 0.5) {
+  if (u_slopeMode > 0.5) {
+    // declividade REAL em % (gradiente sem z-factor). ESPELHADO em
+    // lenses.ts/slopeColorAt — verde ≤5%, amarelo 5–15%, vermelho >15%.
+    float gx = (hR - hL) / (2.0 * u_res);
+    float gy = (hU - hD) / (2.0 * u_res);
+    float pct = 100.0 * length(vec2(gx, gy));
+    vec3 gGreen = vec3(46.0, 125.0, 50.0) / 255.0;
+    vec3 gYellow = vec3(244.0, 208.0, 63.0) / 255.0;
+    vec3 gRed = vec3(192.0, 57.0, 43.0) / 255.0;
+    if (pct <= 5.0) base = gGreen;
+    else if (pct <= 10.0) base = mix(gGreen, gYellow, (pct - 5.0) / 5.0);
+    else if (pct <= 15.0) base = mix(gYellow, gRed, (pct - 10.0) / 5.0);
+    else base = gRed;
+  } else if (u_useLensRamp > 0.5) {
     float t = clamp((h - u_dispRange.x) / max(u_dispRange.y - u_dispRange.x, 0.001), 0.0, 1.0);
     base = texelFetch(u_lensRamp, ivec2(int(t * 255.0 + 0.5), 0), 0).rgb;
   } else {
@@ -172,6 +186,7 @@ export class TerrainRenderer {
     biomeVisible: WebGLUniformLocation | null;
     waterVisible: WebGLUniformLocation | null;
     useLensRamp: WebGLUniformLocation | null;
+    slopeMode: WebGLUniformLocation | null;
     hillshade: WebGLUniformLocation | null;
     zFactor: WebGLUniformLocation | null;
     dispRange: WebGLUniformLocation | null;
@@ -219,6 +234,7 @@ export class TerrainRenderer {
       biomeVisible: gl.getUniformLocation(this.program, 'u_biomeVisible'),
       waterVisible: gl.getUniformLocation(this.program, 'u_waterVisible'),
       useLensRamp: gl.getUniformLocation(this.program, 'u_useLensRamp'),
+      slopeMode: gl.getUniformLocation(this.program, 'u_slopeMode'),
       hillshade: gl.getUniformLocation(this.program, 'u_hillshade'),
       zFactor: gl.getUniformLocation(this.program, 'u_zFactor'),
       dispRange: gl.getUniformLocation(this.program, 'u_dispRange'),
@@ -442,6 +458,7 @@ export class TerrainRenderer {
     gl.uniform1f(this.uniforms.biomeVisible, this.world.biomes.visible && lens.showBiomes ? 1 : 0);
     gl.uniform1f(this.uniforms.waterVisible, this.world.water.visible && lens.showWater ? 1 : 0);
     gl.uniform1f(this.uniforms.useLensRamp, lens.buildRamp ? 1 : 0);
+    gl.uniform1f(this.uniforms.slopeMode, lens.slope ? 1 : 0);
     gl.uniform1f(this.uniforms.hillshade, lens.hillshade);
     gl.uniform1f(this.uniforms.zFactor, view.zFactor);
     gl.uniform2f(this.uniforms.dispRange, display.min_m, display.max_m);

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { TerrainStats } from '../../core';
-import { getLens, LENSES } from '../../render/lenses/lenses';
+import { getLens, LENSES, slopeColorAt, SLOPE_MAX_PCT } from '../../render/lenses/lenses';
 import type { ProjectSession } from '../session';
 import type { ViewSettings } from './Toolbar';
 
@@ -34,22 +34,40 @@ export function ViewControls({
 }: Props) {
   const lens = getLens(lensId);
 
-  // faixa de exibição REAL do relevo (mesma que o shader usa) — recomputada
-  // a cada edição para a legenda acompanhar o mapa em tempo real.
-  const legend = useMemo(() => {
-    if (!lens.buildRamp) return null;
-    const stats = new TerrainStats(session.world.terrain, session.world.config);
-    const range = stats.displayRange();
-    const ramp = lens.buildRamp(range);
-    const stops: string[] = [];
-    for (let i = 0; i < LEGEND_STOPS; i++) {
-      const idx = Math.round((i / (LEGEND_STOPS - 1)) * 255) * 4;
-      stops.push(`rgb(${ramp[idx]}, ${ramp[idx + 1]}, ${ramp[idx + 2]})`);
+  // legenda da lente ativa — recomputada a cada edição para acompanhar o
+  // mapa em tempo real. Declividade: escala fixa em %; Altitude: faixa REAL
+  // do relevo em metros (a mesma que o shader usa).
+  const legend = useMemo((): { gradient: string; labels: [string, string, string] } | null => {
+    const grad = (color: (t: number) => string) => {
+      const stops: string[] = [];
+      for (let i = 0; i < LEGEND_STOPS; i++) stops.push(color(i / (LEGEND_STOPS - 1)));
+      return `linear-gradient(to top, ${stops.join(', ')})`;
+    };
+    if (lens.slope) {
+      const c = (t: number) => {
+        const [r, g, b] = slopeColorAt(t * SLOPE_MAX_PCT);
+        return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+      };
+      return {
+        gradient: grad(c),
+        labels: [`≥${SLOPE_MAX_PCT}%`, `${SLOPE_MAX_PCT / 2}%`, '0%'],
+      };
     }
-    return { range, gradient: `linear-gradient(to top, ${stops.join(', ')})` };
+    if (lens.buildRamp) {
+      const range = new TerrainStats(session.world.terrain, session.world.config).displayRange();
+      const ramp = lens.buildRamp(range);
+      const c = (t: number) => {
+        const idx = Math.round(t * 255) * 4;
+        return `rgb(${ramp[idx]}, ${ramp[idx + 1]}, ${ramp[idx + 2]})`;
+      };
+      const fmt = (m: number) => `${Math.round(m)} m`;
+      return {
+        gradient: grad(c),
+        labels: [fmt(range.max_m), fmt((range.max_m + range.min_m) / 2), fmt(range.min_m)],
+      };
+    }
+    return null;
   }, [lens, historyTick, session]);
-
-  const fmt = (m: number) => `${Math.round(m)} m`;
 
   return (
     <aside className="view-controls" data-testid="view-controls">
@@ -128,9 +146,9 @@ export function ViewControls({
         <div className="lens-legend" data-testid="lens-legend">
           <div className="lens-legend-bar" style={{ background: legend.gradient }} />
           <div className="lens-legend-labels">
-            <span>{fmt(legend.range.max_m)}</span>
-            <span>{fmt((legend.range.max_m + legend.range.min_m) / 2)}</span>
-            <span>{fmt(legend.range.min_m)}</span>
+            {legend.labels.map((label, i) => (
+              <span key={i}>{label}</span>
+            ))}
           </div>
         </div>
       )}

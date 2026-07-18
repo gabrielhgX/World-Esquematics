@@ -88,7 +88,34 @@ export const ALTITUDE_LENS: LensDefinition = {
   overlays: { contours: true, water: false, vectors: false, objects: false },
 };
 
-export const LENSES: LensDefinition[] = [FINAL_LENS, ALTITUDE_LENS];
+/**
+ * Escala de DECLIVIDADE (P3-1): verde plano → amarelo → vermelho íngreme.
+ * Limiares pedidos: verde ≤5%, amarelo em 5–15%, vermelho >15%. ESPELHADA
+ * no fragment shader (u_slopeMode) — mude os dois juntos.
+ */
+export const SLOPE_MAX_PCT = 20;
+export function slopeColorAt(pct: number): Rgb {
+  if (pct <= 5) return GREEN;
+  if (pct <= 10) return mix(GREEN, YELLOW, (pct - 5) / 5);
+  if (pct <= 15) return mix(YELLOW, RED, (pct - 10) / 5);
+  return RED;
+}
+
+export const SLOPE_LENS: LensDefinition = {
+  id: 'slope',
+  name: 'Declividade',
+  description: 'Inclinação do terreno (%) — verde plano, vermelho íngreme.',
+  buildRamp: null,
+  rangeSource: 'data',
+  hillshade: 0.35, // sombra fraca dá forma sem sujar a cor de declividade
+  slope: true,
+  showWater: false,
+  showBiomes: false,
+  // estradas visíveis: comparar o traçado com a inclinação (maxGrade_pct)
+  overlays: { contours: false, water: false, vectors: true, objects: false },
+};
+
+export const LENSES: LensDefinition[] = [FINAL_LENS, ALTITUDE_LENS, SLOPE_LENS];
 
 export function getLens(id: string): LensDefinition {
   return LENSES.find((lens) => lens.id === id) ?? FINAL_LENS;
