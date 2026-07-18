@@ -3,7 +3,9 @@ import {
   ALTITUDE_LENS,
   altitudeColorAt,
   FINAL_LENS,
+  flowColorAt,
   getLens,
+  HYDRO_LENS,
   LENSES,
   SLOPE_LENS,
   slopeColorAt,
@@ -88,5 +90,32 @@ describe('lentes de visualização (só exibição — nunca dados)', () => {
     expect(SLOPE_LENS.showBiomes).toBe(false);
     expect(SLOPE_LENS.overlays.vectors).toBe(true);
     expect(SLOPE_LENS.overlays.contours).toBe(false);
+  });
+
+  it('lente Hidrografia (P3-2): registro + overlay de drenagem, sem água editada', () => {
+    expect(getLens('hydro')).toBe(HYDRO_LENS);
+    expect(HYDRO_LENS.overlays.hydrography).toBe(true);
+    // a água EDITADA some — mostra o fluxo NATURAL, não os lagos/rios criados
+    expect(HYDRO_LENS.showWater).toBe(false);
+    expect(HYDRO_LENS.overlays.water).toBe(false);
+    expect(HYDRO_LENS.showBiomes).toBe(false);
+    // relevo com forma forte para ler a drenagem contra os vales
+    expect(HYDRO_LENS.hillshade).toBeGreaterThan(0.5);
+  });
+
+  it('flowColorAt: córrego (ciano claro) → rio (azul profundo), monotônico', () => {
+    const spring = flowColorAt(0); // nascente/córrego
+    const river = flowColorAt(1); // foz/rio
+    // ciano claro é mais claro (R e G maiores) que o azul profundo
+    expect(spring[0]).toBeGreaterThan(river[0]);
+    expect(spring[1]).toBeGreaterThan(river[1]);
+    // ambos dominados pelo azul (é água)
+    expect(spring[2]).toBeGreaterThan(spring[0]);
+    expect(river[2]).toBeGreaterThan(river[0]);
+    // escurece monotonicamente com o fluxo (canal verde cai)
+    expect(flowColorAt(0.25)[1]).toBeGreaterThan(flowColorAt(0.75)[1]);
+    // clamp fora de [0,1]
+    expect(flowColorAt(-1)).toEqual(flowColorAt(0));
+    expect(flowColorAt(2)).toEqual(flowColorAt(1));
   });
 });

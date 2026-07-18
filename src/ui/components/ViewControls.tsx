@@ -1,6 +1,12 @@
 import { useMemo } from 'react';
 import { TerrainStats } from '../../core';
-import { getLens, LENSES, slopeColorAt, SLOPE_MAX_PCT } from '../../render/lenses/lenses';
+import {
+  flowColorAt,
+  getLens,
+  LENSES,
+  slopeColorAt,
+  SLOPE_MAX_PCT,
+} from '../../render/lenses/lenses';
 import type { ProjectSession } from '../session';
 import type { ViewSettings } from './Toolbar';
 
@@ -52,6 +58,14 @@ export function ViewControls({
         gradient: grad(c),
         labels: [`≥${SLOPE_MAX_PCT}%`, `${SLOPE_MAX_PCT / 2}%`, '0%'],
       };
+    }
+    if (lens.overlays.hydrography) {
+      const c = (t: number) => {
+        const [r, g, b] = flowColorAt(t);
+        return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+      };
+      // topo = maior fluxo (rio), base = menor (nascente)
+      return { gradient: grad(c), labels: ['Rios', 'Afluentes', 'Nascentes'] };
     }
     if (lens.buildRamp) {
       const range = new TerrainStats(session.world.terrain, session.world.config).displayRange();

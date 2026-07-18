@@ -71,7 +71,7 @@ export const FINAL_LENS: LensDefinition = {
   hillshade: 1,
   showWater: true,
   showBiomes: true,
-  overlays: { contours: true, water: true, vectors: true, objects: true },
+  overlays: { contours: true, water: true, vectors: true, objects: true, hydrography: false },
 };
 
 export const ALTITUDE_LENS: LensDefinition = {
@@ -85,7 +85,7 @@ export const ALTITUDE_LENS: LensDefinition = {
   hillshade: 0.5,
   showWater: false,
   showBiomes: false,
-  overlays: { contours: true, water: false, vectors: false, objects: false },
+  overlays: { contours: true, water: false, vectors: false, objects: false, hydrography: false },
 };
 
 /**
@@ -112,10 +112,34 @@ export const SLOPE_LENS: LensDefinition = {
   showWater: false,
   showBiomes: false,
   // estradas visíveis: comparar o traçado com a inclinação (maxGrade_pct)
-  overlays: { contours: false, water: false, vectors: true, objects: false },
+  overlays: { contours: false, water: false, vectors: true, objects: false, hydrography: false },
 };
 
-export const LENSES: LensDefinition[] = [FINAL_LENS, ALTITUDE_LENS, SLOPE_LENS];
+/**
+ * Escala de FLUXO (P3-2): córrego (ciano claro) → rio (azul profundo).
+ * ESPELHADA no HydrographyOverlay — a legenda e o traçado usam a mesma cor.
+ */
+const FLOW_SHALLOW: Rgb = [125, 206, 232];
+const FLOW_DEEP: Rgb = [16, 78, 139];
+export function flowColorAt(t: number): Rgb {
+  return mix(FLOW_SHALLOW, FLOW_DEEP, Math.max(0, Math.min(1, t)));
+}
+
+export const HYDRO_LENS: LensDefinition = {
+  id: 'hydro',
+  name: 'Hidrografia',
+  description: 'Rede de drenagem natural — para onde a água escoa no relevo.',
+  buildRamp: null,
+  rangeSource: 'data',
+  // relevo com forma FORTE: a drenagem só faz sentido lida contra os vales
+  hillshade: 0.9,
+  // a água EDITADA some — aqui o que importa é o fluxo NATURAL do relevo
+  showWater: false,
+  showBiomes: false,
+  overlays: { contours: false, water: false, vectors: false, objects: false, hydrography: true },
+};
+
+export const LENSES: LensDefinition[] = [FINAL_LENS, ALTITUDE_LENS, SLOPE_LENS, HYDRO_LENS];
 
 export function getLens(id: string): LensDefinition {
   return LENSES.find((lens) => lens.id === id) ?? FINAL_LENS;

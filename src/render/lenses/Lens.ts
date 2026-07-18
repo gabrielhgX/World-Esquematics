@@ -24,6 +24,8 @@ export interface LensOverlayFlags {
   water: boolean;
   vectors: boolean;
   objects: boolean;
+  /** rede de drenagem natural derivada do relevo (P3-2) */
+  hydrography: boolean;
 }
 
 export interface LensDefinition {
