@@ -195,6 +195,73 @@ function buildRiverValley(): WorldData {
   return world;
 }
 
+function buildErodedBasin(): WorldData {
+  const { world, kernels } = baseWorld('Serras Erodidas');
+  const raster = world.terrain.raster;
+  const stamp = (cx_m: number, cy_m: number, r_m: number, meters: number) =>
+    kernels.applyRaise(
+      raster,
+      { cx_cells: cx_m / 4, cy_cells: cy_m / 4, radius_cells: r_m / 4, strength: 1, falloff: 'smooth' },
+      Math.round(meters * u16PerMeter),
+    );
+
+  // LCG determinístico: o mapa é o mesmo toda vez (README §11 exige isso)
+  let seed = 20260719;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+
+  // planalto largo positivo + rugosidade irregular no anel médio: os vales
+  // entre os morros viram talvegues, e tudo escoa para a bacia central —
+  // a rede de drenagem que a lente de Hidrografia existe para mostrar.
+  stamp(4096, 4096, 4200, 260);
+  for (let i = 0; i < 60; i++) {
+    const angle = rand() * Math.PI * 2;
+    const radius = 900 + rand() * 2600;
+    stamp(
+      4096 + Math.cos(angle) * radius,
+      4096 + Math.sin(angle) * radius,
+      250 + rand() * 500,
+      30 + rand() * 110,
+    );
+  }
+  stamp(4096, 4096, 1500, -340); // bacia central: o sumidouro interno
+  raster.consumeDirty();
+
+  // lago no fundo da bacia (o dreno para onde a rede converge)
+  const basin_m = world.terrain.getHeight(4096, 4096);
+  world.water.addBody({
+    id: newId(),
+    kind: 'lake',
+    surface_m: Math.round(basin_m + 45),
+    polygon: circle(4096, 4096, 900),
+    material: 'water_lake',
+  });
+
+  // floresta nas serras, rocha nos cumes
+  world.biomes.scatterSeed = 20260719;
+  world.biomes.addPolygon(createBiomePolygon(1, circle(4096, 4096, 3400, 32), 70));
+  world.biomes.addPolygon(createBiomePolygon(4, circle(4096, 4096, 1300), 40));
+
+  world.regions.add({
+    id: newId(),
+    name: 'As Serras',
+    description: 'Planalto erodido drenando para a bacia central.',
+    polygon: circle(4096, 4096, 3800, 32),
+    color: '#6a8ab0',
+    properties: { clima: 'temperado' },
+  });
+  world.pois.add({
+    id: newId(),
+    name: 'Lago da Bacia',
+    icon: '≈',
+    pos: { x: 4096, y: 4096 },
+    properties: {},
+  });
+  return world;
+}
+
 export const EXAMPLE_WORLDS: ExampleWorld[] = [
   {
     id: 'ilha-vulcanica',
@@ -207,5 +274,11 @@ export const EXAMPLE_WORLDS: ExampleWorld[] = [
     name: 'Vale do Rio',
     description: 'Rio descendo entre duas serras, estrada, campo e floresta.',
     build: buildRiverValley,
+  },
+  {
+    id: 'serras-erodidas',
+    name: 'Serras Erodidas',
+    description: 'Planalto rugoso drenando para uma bacia central — abra a lente Hidrografia.',
+    build: buildErodedBasin,
   },
 ];
