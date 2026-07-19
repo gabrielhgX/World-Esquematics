@@ -55,17 +55,9 @@ export function WaterControls({ session, settings, onSettingsChange, historyTick
       </select>
 
       {settings.mode === 'lake' && (
-        <label>
-          Cota (m)
-          <input
-            type="number"
-            step="1"
-            value={settings.lakeSurface_m}
-            onChange={(e) =>
-              onSettingsChange({ ...settings, lakeSurface_m: Number(e.target.value) })
-            }
-          />
-        </label>
+        <span className="hint-inline" title="A água enche a bacia contida pelo relevo">
+          Segure para encher
+        </span>
       )}
 
       {settings.mode === 'river' && (
@@ -104,7 +96,6 @@ export function WaterControls({ session, settings, onSettingsChange, historyTick
               />
             </label>
           )}
-          <span className="hint">Enter conclui · Esc cancela</span>
         </>
       )}
 

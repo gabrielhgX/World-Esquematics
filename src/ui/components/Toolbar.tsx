@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import { UnrealExporter } from '../../io/exporters/unreal/UnrealExporter';
 import { writeZip } from '../../io/format/zip';
-import { LENSES } from '../../render/lenses/lenses';
 import type { BrushSettings } from '../../tools/SculptTool';
 import type { WaterSettings } from '../../tools/WaterTool';
 import type { RoadSettings } from '../../tools/RoadTool';
@@ -26,6 +25,23 @@ export interface ViewSettings {
 
 export type ActiveToolName =
   'pan' | 'sculpt' | 'water' | 'road' | 'biome' | 'object' | 'region' | 'poi' | 'measure';
+
+/**
+ * Dica de cada ferramenta (P2-2): antes espremidas em 4 linhas de itálico
+ * DENTRO da toolbar; agora vão para um toast no rodapé do viewport, uma
+ * linha só. '' = ferramenta sem dica.
+ */
+export const TOOL_HINTS: Record<ActiveToolName, string> = {
+  pan: '',
+  sculpt: 'Arraste para esculpir · segure o botão para fluxo contínuo',
+  water: 'Lago: segure numa depressão p/ encher · Rio: cliques + Enter · Esc cancela',
+  road: 'Clique-arrastar cria a curva · Enter conclui · Esc cancela',
+  biome: 'Cliques desenham o polígono · Enter fecha · Esc cancela',
+  object: 'Clique posiciona o objeto',
+  region: 'Cliques desenham o polígono · Enter fecha · Esc cancela',
+  poi: 'Clique posiciona o POI',
+  measure: 'Cliques medem distância plana e real · Enter fecha o polígono (área) · Esc limpa',
+};
 
 interface Props {
   session: ProjectSession;
@@ -53,11 +69,8 @@ interface Props {
   onOpenProject: (file: File) => Promise<void>;
   /** avisa o App que um export Unreal concluiu (onboarding/telemetria) */
   onExportedUnreal: () => void;
-  /** lente de visualização ativa (só exibição — nunca dados) */
-  lensId: string;
-  onLensChange: (lensId: string) => void;
-  viewSettings: ViewSettings;
-  onViewSettingsChange: (settings: ViewSettings) => void;
+  /** volta à tela inicial (novo projeto) */
+  onNewProject: () => void;
   /** muda a cada comando/undo/redo — mantém os botões sincronizados */
   historyTick: number;
 }
@@ -96,10 +109,7 @@ export function Toolbar({
   onDownloadProject,
   onOpenProject,
   onExportedUnreal,
-  lensId,
-  onLensChange,
-  viewSettings,
-  onViewSettingsChange,
+  onNewProject,
   historyTick,
 }: Props) {
   const { history, bus } = session;
@@ -195,72 +205,9 @@ export function Toolbar({
       {activeTool === 'measure' && <MeasureControls />}
 
       <div className="tool-group toolbar-right">
-        <label className="lens-picker" title="Lente de visualização — só muda a exibição do mapa">
-          Lente
-          <select
-            value={lensId}
-            onChange={(e) => onLensChange(e.target.value)}
-            data-testid="lens-select"
-          >
-            {LENSES.map((lens) => (
-              <option key={lens.id} value={lens.id} title={lens.description}>
-                {lens.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label
-          className="lens-picker"
-          title="Exagero vertical do sombreado — Auto mira o relevo real do mapa"
-        >
-          Relevo
-          <select
-            value={String(viewSettings.zFactor)}
-            onChange={(e) =>
-              onViewSettingsChange({
-                ...viewSettings,
-                zFactor: e.target.value === 'auto' ? 'auto' : Number(e.target.value),
-              })
-            }
-            data-testid="zfactor-select"
-          >
-            <option value="auto">Auto</option>
-            {[1, 2, 4, 8, 12, 16, 20].map((z) => (
-              <option key={z} value={z}>
-                ×{z}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="lens-picker" title="Curvas de nível (intervalo Auto segue o relevo)">
-          <input
-            type="checkbox"
-            checked={viewSettings.contours}
-            onChange={(e) => onViewSettingsChange({ ...viewSettings, contours: e.target.checked })}
-            data-testid="contours-toggle"
-          />
-          Curvas
-        </label>
-        {viewSettings.contours && (
-          <select
-            value={String(viewSettings.contourInterval)}
-            onChange={(e) =>
-              onViewSettingsChange({
-                ...viewSettings,
-                contourInterval: e.target.value === 'auto' ? 'auto' : Number(e.target.value),
-              })
-            }
-            title="Intervalo das curvas de nível"
-            data-testid="contour-interval"
-          >
-            <option value="auto">Auto</option>
-            {[1, 2, 5, 10, 20, 50, 100].map((v) => (
-              <option key={v} value={v}>
-                {v} m
-              </option>
-            ))}
-          </select>
-        )}
+        <button onClick={onNewProject} title="Voltar à tela inicial / novo projeto">
+          Novo
+        </button>
         <button onClick={handleSave} disabled={saving} title="Salvar no navegador (§10.2)">
           {saving ? 'Salvando…' : saved ? 'Salvo ✓' : 'Salvar'}
         </button>

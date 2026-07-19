@@ -12,6 +12,16 @@ function trim(n: number): string {
 }
 
 /**
+ * Altitude/profundidade para o usuário: METROS INTEIROS (P2-4). "1.53 cm"
+ * é o erro de quantização do uint16 guardando 0 m — detalhe de armazenamento
+ * (D3 correto), não informação. Arredonda para o metro (−0 vira 0).
+ */
+export function formatAltitude(value_m: number): string {
+  const rounded = Math.round(value_m);
+  return `${rounded === 0 ? 0 : rounded} m`;
+}
+
+/**
  * Rótulo de RÉGUA: a precisão vem do PASSO, não do valor — dois ticks
  * vizinhos nunca colapsam no mesmo texto (ex.: passo 1 m perto de 4 km
  * imprime "4001 m", nunca dois "4 km" seguidos). A unidade também vem do

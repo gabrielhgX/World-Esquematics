@@ -18,6 +18,7 @@ import { ContourOverlay } from './canvas2d/ContourOverlay';
 import { WaterOverlay } from './canvas2d/WaterOverlay';
 import { VectorOverlay } from './canvas2d/VectorOverlay';
 import { ObjectOverlay } from './canvas2d/ObjectOverlay';
+import { HydrographyOverlay } from './canvas2d/HydrographyOverlay';
 import { ScatterTileCache } from './ScatterTileCache';
 import type { Modifiers, Tool } from '../tools/Tool';
 
@@ -55,6 +56,7 @@ export class Viewport {
   private readonly biomeCache: BiomeRasterCache;
   private readonly scatterCache: ScatterTileCache;
   private readonly objectOverlay: ObjectOverlay;
+  private readonly hydrography: HydrographyOverlay;
   private readonly resizeObserver: ResizeObserver;
   private readonly abort = new AbortController();
 
@@ -66,6 +68,8 @@ export class Viewport {
   // --- estatísticas do relevo REAL (P0-2): alimentam rampa, z e curvas ---
   private readonly stats: TerrainStats;
   private statsStale = true;
+  /** relevo mudou desde a última rede de drenagem (P3-2) */
+  private hydroStale = false;
   /** faixa de exibição alvo (dataRange + margem) e a aplicada (suavizada) */
   private targetDisplay: DataRange = { min_m: -25, max_m: 25 };
   private appliedDisplay: DataRange = { min_m: -25, max_m: 25 };
@@ -118,6 +122,7 @@ export class Viewport {
     );
     this.scatterCache = new ScatterTileCache(world, this.biomeCache);
     this.objectOverlay = new ObjectOverlay(world, this.scatterCache);
+    this.hydrography = new HydrographyOverlay(world, world.config.terrainResolution_m);
 
     this.stats = new TerrainStats(world.terrain, world.config);
     this.refreshStats();
@@ -252,8 +257,14 @@ export class Viewport {
       this.contourCache.invalidate(dirty);
       this.scatterCache.invalidate(dirty); // declividade mudou onde esculpiu
       this.statsStale = true;
+      this.hydroStale = true; // a drenagem mudou onde esculpiu
     }
     if (this.statsStale && !this.toolStroking) this.refreshStats();
+    // rede de drenagem só recomputa FORA do traço (D8 é cara) — igual às stats
+    if (this.hydroStale && !this.toolStroking) {
+      this.hydrography.invalidate();
+      this.hydroStale = false;
+    }
 
     // suaviza a faixa aplicada rumo ao alvo (sem "pulo" de rampa por dab)
     const now = performance.now();
@@ -298,6 +309,7 @@ export class Viewport {
       this.contours.draw(ctx, this.camera, interval);
     }
     if (this.lens.overlays.water) this.waterOverlay.draw(ctx, this.camera);
+    if (this.lens.overlays.hydrography) this.hydrography.draw(ctx, this.camera);
     // ordem do §6: estradas (5) → regiões (6) → objetos (7)
     if (this.lens.overlays.vectors) this.vectorOverlay.draw(ctx, this.camera);
     if (this.lens.overlays.objects) this.objectOverlay.draw(ctx, this.camera);

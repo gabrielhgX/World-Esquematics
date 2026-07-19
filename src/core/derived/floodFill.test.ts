@@ -3,7 +3,7 @@ import { WorldData } from '../world/WorldData';
 import { createWorldConfig } from '../world/WorldConfig';
 import { heightToU16 } from '../world/conversions';
 import { pointInPolygon } from '../geometry/polygon';
-import { floodFillLake } from './floodFill';
+import { basinSpillLevel, floodFillLake } from './floodFill';
 
 const RANGE = { min_m: -200, max_m: 1800 };
 
@@ -66,5 +66,33 @@ describe('floodFillLake — "Preencher lago" (README §4.3/§7.2)', () => {
   it('respeita maxCells', () => {
     const world = makeCraterWorld();
     expect(floodFillLake(world.terrain, 4, { x: 1024, y: 1024 }, 0, { maxCells: 100 })).toBeNull();
+  });
+});
+
+describe('basinSpillLevel — encher a bacia CONTIDA pelo relevo (§7.2)', () => {
+  it('acha o transbordo da cratera (rim ~0 m) e o fundo (−50)', () => {
+    const world = makeCraterWorld();
+    const basin = basinSpillLevel(world.terrain, 4, { x: 1024, y: 1024 });
+    expect(basin).not.toBeNull();
+    // o rim é o terreno em volta (~0 m): encher até aí não alaga a planície
+    expect(basin!.spill_m).toBeGreaterThan(-2);
+    expect(basin!.spill_m).toBeLessThan(1);
+    expect(basin!.bottom_m).toBeLessThan(-40);
+    // a água jorra a partir de um ponto DENTRO da cratera
+    expect(Math.hypot(basin!.bottomSeed.x - 1024, basin!.bottomSeed.y - 1024)).toBeLessThan(250);
+  });
+
+  it('encher até o transbordo cobre a cratera mas não a planície', () => {
+    const world = makeCraterWorld();
+    const basin = basinSpillLevel(world.terrain, 4, { x: 1024, y: 1024 })!;
+    const lake = floodFillLake(world.terrain, 4, basin.bottomSeed, basin.spill_m)!;
+    expect(lake).not.toBeNull();
+    expect(pointInPolygon(1024, 1024, lake.polygon)).toBe(true);
+    expect(pointInPolygon(100, 100, lake.polygon)).toBe(false); // planície seca
+  });
+
+  it('clique na planície plana (sem depressão) devolve null', () => {
+    const world = makeCraterWorld();
+    expect(basinSpillLevel(world.terrain, 4, { x: 100, y: 100 })).toBeNull();
   });
 });

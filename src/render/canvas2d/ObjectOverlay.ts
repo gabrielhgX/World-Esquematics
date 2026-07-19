@@ -33,7 +33,12 @@ export class ObjectOverlay {
     for (const object of this.world.objects.objects) {
       const s = camera.worldToScreen(object.pos);
       if (s.x < -20 || s.y < -20 || s.x > width + 20 || s.y > height + 20) continue; // culling
-      drawGlyph(ctx, object.type, s.x, s.y, Math.max(8, 3 / mpp) * object.scale.x);
+      const size = Math.max(8, 3 / mpp) * object.scale.x;
+      // P2-6: objetos MANUAIS ganham uma âncora de "marcador colocável" — um
+      // anel na base — para não se confundirem com a vegetação GERADA pelo
+      // bioma (pontos apagados, sem anel). Só o manual é individual/selecionável.
+      drawAnchor(ctx, s.x, s.y);
+      drawGlyph(ctx, object.type, s.x, s.y, size);
     }
   }
 
@@ -76,11 +81,22 @@ export class ObjectOverlay {
   }
 }
 
+// vegetação GERADA (P2-6): mais apagada que os objetos manuais — é ambiente
+// procedural, não marcadores individuais.
 function vegetationColor(type: string): string {
-  if (type.includes('pine')) return 'rgba(31, 84, 56, 0.85)';
-  if (type.includes('oak')) return 'rgba(56, 102, 65, 0.85)';
-  if (type.includes('bush')) return 'rgba(108, 140, 72, 0.8)';
-  return 'rgba(74, 103, 65, 0.8)';
+  if (type.includes('pine')) return 'rgba(31, 84, 56, 0.6)';
+  if (type.includes('oak')) return 'rgba(56, 102, 65, 0.6)';
+  if (type.includes('bush')) return 'rgba(108, 140, 72, 0.55)';
+  return 'rgba(74, 103, 65, 0.55)';
+}
+
+/** Âncora de objeto manual: anel fino que sinaliza "marcador colocável". */
+function drawAnchor(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(x, y, 3, 0, Math.PI * 2);
+  ctx.stroke();
 }
 
 /** Ícone simples por tipo de objeto manual. */

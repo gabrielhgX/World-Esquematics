@@ -95,8 +95,6 @@ export function RoadControls({ session, settings, onSettingsChange }: Props) {
       >
         {carving ? 'Aplicando…' : 'Aplicar ao relevo'}
       </button>
-
-      <span className="hint">clique-arrastar curva · Enter conclui · Esc cancela</span>
     </div>
   );
 }

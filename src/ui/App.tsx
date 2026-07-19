@@ -19,10 +19,14 @@ import { downloadBytes } from './download';
 import { NewProjectDialog } from './components/NewProjectDialog';
 import { Onboarding } from './components/Onboarding';
 import { Outliner } from './components/Outliner';
+import { ViewControls } from './components/ViewControls';
 import { ViewportView } from './components/ViewportView';
 import { StatusBar } from './components/StatusBar';
-import { Toolbar, type ActiveToolName, type ViewSettings } from './components/Toolbar';
+import { Toolbar, TOOL_HINTS, type ActiveToolName, type ViewSettings } from './components/Toolbar';
 import { createProjectSession, createSessionFromWorld, type ProjectSession } from './session';
+
+/** marca que o usuário já passou pela tela inicial ao menos uma vez (P2-5) */
+const FIRST_RUN_KEY = 'wesq.firstRun.seen';
 
 export default function App({ platform }: { platform: Platform }) {
   const [session, setSession] = useState<ProjectSession | null>(null);
@@ -79,14 +83,6 @@ export default function App({ platform }: { platform: Platform }) {
     () => platform.storage.list().then(setProjects, () => setProjects([])),
     [platform],
   );
-
-  // Tela inicial: lista de projetos salvos + oferta do autosave mais recente.
-  useEffect(() => {
-    void refreshProjects();
-    void platform.storage.readLatestAutosave().then((record) => {
-      if (record) setAutosaveInfo({ projectName: record.projectName, savedAt: record.savedAt });
-    });
-  }, [platform, refreshProjects]);
 
   // Undo/redo por teclado + botões sempre em dia com o histórico.
   useEffect(() => {
@@ -206,6 +202,51 @@ export default function App({ platform }: { platform: Platform }) {
     await openWorldBytes(record.bytes);
   }, [platform, openWorldBytes]);
 
+  // Volta à tela inicial (novo projeto). Se há trabalho não salvo, confirma —
+  // Salvar/Baixar continuam disponíveis antes de sair.
+  const handleNewProject = useCallback(() => {
+    if (historyTickRef.current > 0) {
+      const ok = confirm('Descartar as alterações não salvas e voltar à tela inicial?');
+      if (!ok) return;
+    }
+    setSession(null);
+    setHistoryTick(0);
+    lastAutosavedTick.current = 0;
+    void refreshProjects();
+  }, [refreshProjects]);
+
+  // Tela inicial: projetos salvos + oferta de autosave. PRIMEIRO USO (P2-5):
+  // sem projetos, sem autosave e sem ter passado por aqui, abre a "Ilha
+  // Vulcânica" — a pessoa esculpe uma montanha que já existe antes de criar
+  // uma do zero (a pior primeira impressão é um retângulo verde vazio).
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const [stored, autosave] = await Promise.all([
+        platform.storage.list().catch(() => []),
+        platform.storage.readLatestAutosave().catch(() => null),
+      ]);
+      if (!alive) return;
+      setProjects(stored);
+      if (autosave)
+        setAutosaveInfo({ projectName: autosave.projectName, savedAt: autosave.savedAt });
+
+      if (
+        localStorage.getItem(FIRST_RUN_KEY) === null &&
+        stored.length === 0 &&
+        !autosave &&
+        !session
+      ) {
+        localStorage.setItem(FIRST_RUN_KEY, '1');
+        handleOpenExample('ilha-vulcanica');
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // roda uma vez no boot (handleOpenExample é estável — deps [platform])
+  }, [platform]);
+
   // ---- gate de licença: nada renderiza sem uma licença válida ----
   if (license === null) {
     return (
@@ -279,10 +320,7 @@ export default function App({ platform }: { platform: Platform }) {
           setExportTick((n) => n + 1);
           platform.telemetry.event('export_unreal');
         }}
-        lensId={lensId}
-        onLensChange={setLensId}
-        viewSettings={viewSettings}
-        onViewSettingsChange={setViewSettings}
+        onNewProject={handleNewProject}
         historyTick={historyTick}
       />
       <div className="main-row">
@@ -302,6 +340,19 @@ export default function App({ platform }: { platform: Platform }) {
           onCursorMove={setCursor}
           apiRef={viewportRef}
         />
+        <ViewControls
+          session={session}
+          historyTick={historyTick}
+          lensId={lensId}
+          onLensChange={setLensId}
+          viewSettings={viewSettings}
+          onViewSettingsChange={setViewSettings}
+        />
+        {TOOL_HINTS[activeTool] && (
+          <div className="tool-hint-toast" data-testid="tool-hint">
+            {TOOL_HINTS[activeTool]}
+          </div>
+        )}
         <Onboarding session={session} exportTick={exportTick} />
       </div>
       <StatusBar world={session.world} cursor={cursor} licenseLabel={licenseLabel} />

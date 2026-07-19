@@ -42,7 +42,6 @@ export function BiomeControls({
           }
         />
       </label>
-      <span className="hint">cliques desenham o polígono · Enter fecha · Esc cancela</span>
     </div>
   );
 }
@@ -75,7 +74,6 @@ export function ObjectControls({
         />
         Alinhar à encosta
       </label>
-      <span className="hint">clique posiciona o objeto</span>
     </div>
   );
 }

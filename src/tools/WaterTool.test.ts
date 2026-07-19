@@ -6,6 +6,7 @@ import {
   WorldData,
   createWorldConfig,
   heightToU16,
+  pointInPolygon,
 } from '../core';
 import { Camera2D } from '../render/Camera2D';
 import { WaterTool } from './WaterTool';
@@ -45,35 +46,43 @@ const makeContext = (): ToolContext & { world: WorldData; bus: CommandBus } => {
 };
 
 describe('WaterTool (README §7.2) — só emite Commands', () => {
-  it('modo lago: clique na cratera cria WaterBody com polígono; undo remove', () => {
+  it('modo lago: segurar numa depressão enche a bacia CONTIDA; undo remove', () => {
     const ctx = makeContext();
     const tool = new WaterTool(ctx);
-    tool.settings = { ...tool.settings, mode: 'lake', lakeSurface_m: -20 };
+    tool.settings = { ...tool.settings, mode: 'lake' };
 
-    tool.onPointerDown({ x: 1024, y: 1024 }, mods);
+    tool.onPointerDown({ x: 1024, y: 1024 }, mods); // pressiona na cratera
+    expect(ctx.world.water.lakes.length).toBe(0); // ainda é só preview
+    tool.onHold(2000); // segura: sobe até o transbordo (clampa no rim)
+    tool.onPointerUp(); // solta: sela o lago
+
     expect(ctx.world.water.lakes.length).toBe(1);
     const lake = ctx.world.water.lakes[0];
     expect(lake.kind).toBe('lake');
-    expect(lake.surface_m).toBe(-20);
+    // enche até o nível do terreno em volta (~0 m), nunca acima — contido
+    expect(lake.surface_m).toBeGreaterThan(-5);
+    expect(lake.surface_m).toBeLessThan(1);
     expect(lake.polygon.length).toBeGreaterThan(3);
-    // surfaceAt devolve a superfície mais ALTA — e o oceano só conta
-    // depois de LIGADO (água nunca aparece sozinha ao escavar)
-    expect(ctx.world.water.surfaceAt(100, 100)).toBe(-Infinity); // fora, seco
-    ctx.world.water.setSeaLevel(-100);
-    ctx.world.water.setOceanEnabled(true);
-    expect(ctx.world.water.surfaceAt(1024, 1024)).toBe(-20);
-    expect(ctx.world.water.surfaceAt(100, 100)).toBe(-100); // fora do lago
+    // cobre a cratera mas NÃO alaga a planície em volta
+    expect(pointInPolygon(1024, 1024, lake.polygon)).toBe(true);
+    expect(pointInPolygon(100, 100, lake.polygon)).toBe(false);
+    // a superfície derivada dá água na cratera, seco fora dela
+    expect(ctx.world.water.surfaceAt(1024, 1024)).toBeGreaterThan(-5);
+    expect(ctx.world.water.surfaceAt(100, 100)).toBe(-Infinity);
 
     ctx.bus.undo();
     expect(ctx.world.water.lakes.length).toBe(0);
   });
 
-  it('modo lago: clique em terra seca não emite comando', () => {
+  it('modo lago: pressionar na planície seca (sem bacia) não emite comando', () => {
     const ctx = makeContext();
     const tool = new WaterTool(ctx);
-    tool.settings = { ...tool.settings, mode: 'lake', lakeSurface_m: -20 };
+    tool.settings = { ...tool.settings, mode: 'lake' };
     tool.onPointerDown({ x: 100, y: 100 }, mods);
+    tool.onHold(2000);
+    tool.onPointerUp();
     expect(ctx.bus.history.undoCount).toBe(0);
+    expect(ctx.world.water.lakes.length).toBe(0);
   });
 
   it('modo rio: cliques + Enter criam a spline com cota decrescente', () => {

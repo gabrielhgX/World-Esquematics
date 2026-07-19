@@ -4,6 +4,7 @@ import type { Camera2D } from '../Camera2D';
 import type { DisplayRange, LensDefinition } from '../lenses/Lens';
 import { FINAL_LENS } from '../lenses/lenses';
 import { createProgram } from './glUtils';
+import { TileAtlas } from './TileAtlas';
 
 /** Estado de exibição por frame: exagero vertical + faixa REAL do relevo. */
 export interface TerrainView {
@@ -16,6 +17,10 @@ export interface TerrainView {
  * (formato nativo uint16 — D3) e o hillshade + rampa de cor são puro
  * fragment shader, custo zero por edição. Tiles sujos viram texSubImage2D
  * parciais — nunca re-upload do mapa inteiro (D4).
+ *
+ * P1-2: relevo, água e bioma moram em ATLAS DE TILES esparsos (TileAtlas) —
+ * só os tiles vivos ocupam VRAM, como o TiledRaster faz na RAM. O shader
+ * ganha um nível de indireção (page table) por textura; nada mais muda.
  */
 
 const VERTEX_SHADER = /* glsl */ `#version 300 es
@@ -35,11 +40,19 @@ const FRAGMENT_SHADER = /* glsl */ `#version 300 es
 precision highp float;
 precision highp usampler2D;
 
-uniform usampler2D u_height;  // R16UI
-uniform usampler2D u_water;   // R16UI: cota u16 da superfície dos lagos, 0 = sem água
-uniform usampler2D u_biome;   // R8UI: id do bioma por célula, 0 = sem bioma
+// Atlas esparsos (P1-2): cada dado é um atlas de tiles vivos + uma page table
+// (tilesX×tilesY) que aponta o slot do tile (0 = não alocado → preenchimento).
+uniform usampler2D u_heightAtlas;
+uniform usampler2D u_heightPage;
+uniform usampler2D u_waterAtlas;  // cota u16 da superfície dos lagos, 0 = sem água
+uniform usampler2D u_waterPage;
+uniform usampler2D u_biomeAtlas;  // id do bioma por célula, 0 = sem bioma
+uniform usampler2D u_biomePage;
 uniform sampler2D u_palette;  // 256×1: cor de cada id de bioma
 uniform sampler2D u_lensRamp; // 256×1: rampa da LENTE ativa (min→max do range)
+uniform int u_tileSize;       // lado do tile em células (512)
+uniform int u_atlasCols;      // colunas de tiles no atlas
+uniform uint u_fillHeight;    // u16 de preenchimento do relevo (tile não alocado)
 uniform vec2 u_grid;          // células (largura, altura)
 uniform float u_res;          // metros por célula
 uniform vec2 u_range;         // heightRange (min_m, max_m)
@@ -47,6 +60,7 @@ uniform float u_seaLevel;     // cota do oceano global (m); MUITO negativo = des
 uniform float u_biomeVisible; // Outliner ∧ lente: 1 = biomas visíveis
 uniform float u_waterVisible; // Outliner ∧ lente: 1 = água visível
 uniform float u_useLensRamp;  // 1 = cor vem da rampa da lente
+uniform float u_slopeMode;    // 1 = colore por declividade (P3-1)
 uniform float u_hillshade;    // intensidade do sombreado (0..1) — lente decide
 uniform float u_zFactor;      // exagero vertical do hillshade (P0-3)
 uniform vec2 u_dispRange;     // faixa de EXIBIÇÃO em m (P0-4) — u_range é só
@@ -55,6 +69,18 @@ uniform vec2 u_dispRange;     // faixa de EXIBIÇÃO em m (P0-4) — u_range é 
 in vec2 v_world;
 out vec4 outColor;
 
+// Indireção do atlas: resolve o texel de uma célula via page table (P1-2).
+// A célula já vem grampeada em [0, grid-1] por quem chama.
+uint sampleTile(highp usampler2D atlas, highp usampler2D page, ivec2 cell, uint fillv) {
+  ivec2 tile = cell / u_tileSize;
+  uint slot1 = texelFetch(page, tile, 0).r;
+  if (slot1 == 0u) return fillv;
+  int s = int(slot1 - 1u);
+  ivec2 base = ivec2((s % u_atlasCols) * u_tileSize, (s / u_atlasCols) * u_tileSize);
+  ivec2 local = cell - tile * u_tileSize;
+  return texelFetch(atlas, base + local, 0).r;
+}
+
 // Bilinear manual (texturas inteiras não filtram): 4 texelFetch + mix.
 float heightAt(vec2 cell) {
   vec2 c = clamp(cell, vec2(0.0), u_grid - 1.0);
@@ -62,10 +88,10 @@ float heightAt(vec2 cell) {
   vec2 t = c - f;
   ivec2 i0 = ivec2(f);
   ivec2 i1 = min(i0 + 1, ivec2(u_grid) - 1);
-  float h00 = float(texelFetch(u_height, i0, 0).r);
-  float h10 = float(texelFetch(u_height, ivec2(i1.x, i0.y), 0).r);
-  float h01 = float(texelFetch(u_height, ivec2(i0.x, i1.y), 0).r);
-  float h11 = float(texelFetch(u_height, i1, 0).r);
+  float h00 = float(sampleTile(u_heightAtlas, u_heightPage, i0, u_fillHeight));
+  float h10 = float(sampleTile(u_heightAtlas, u_heightPage, ivec2(i1.x, i0.y), u_fillHeight));
+  float h01 = float(sampleTile(u_heightAtlas, u_heightPage, ivec2(i0.x, i1.y), u_fillHeight));
+  float h11 = float(sampleTile(u_heightAtlas, u_heightPage, i1, u_fillHeight));
   float u16 = mix(mix(h00, h10, t.x), mix(h01, h11, t.x), t.y);
   return u_range.x + (u16 / 65535.0) * (u_range.y - u_range.x);
 }
@@ -115,9 +141,22 @@ void main() {
   // intensidade do sombreado vem da lente (0 = cor pura, 1 = pleno)
   float shade = mix(1.0, 0.4 + 0.6 * lambert, u_hillshade);
 
-  // cor base: rampa padrão ou a rampa da LENTE ativa (só exibição)
+  // cor base: DECLIVIDADE, rampa da lente, ou hipsométrica padrão
   vec3 base;
-  if (u_useLensRamp > 0.5) {
+  if (u_slopeMode > 0.5) {
+    // declividade REAL em % (gradiente sem z-factor). ESPELHADO em
+    // lenses.ts/slopeColorAt — verde ≤5%, amarelo 5–15%, vermelho >15%.
+    float gx = (hR - hL) / (2.0 * u_res);
+    float gy = (hU - hD) / (2.0 * u_res);
+    float pct = 100.0 * length(vec2(gx, gy));
+    vec3 gGreen = vec3(46.0, 125.0, 50.0) / 255.0;
+    vec3 gYellow = vec3(244.0, 208.0, 63.0) / 255.0;
+    vec3 gRed = vec3(192.0, 57.0, 43.0) / 255.0;
+    if (pct <= 5.0) base = gGreen;
+    else if (pct <= 10.0) base = mix(gGreen, gYellow, (pct - 5.0) / 5.0);
+    else if (pct <= 15.0) base = mix(gYellow, gRed, (pct - 10.0) / 5.0);
+    else base = gRed;
+  } else if (u_useLensRamp > 0.5) {
     float t = clamp((h - u_dispRange.x) / max(u_dispRange.y - u_dispRange.x, 0.001), 0.0, 1.0);
     base = texelFetch(u_lensRamp, ivec2(int(t * 255.0 + 0.5), 0), 0).rgb;
   } else {
@@ -127,7 +166,7 @@ void main() {
 
   // Biomas: paleta indexada com blend (README §6, passada 2).
   ivec2 biomeIdx = ivec2(clamp(cell, vec2(0.0), u_grid - 1.0));
-  uint biomeId = texelFetch(u_biome, biomeIdx, 0).r;
+  uint biomeId = sampleTile(u_biomeAtlas, u_biomePage, biomeIdx, 0u);
   if (biomeId > 0u && u_biomeVisible > 0.5) {
     vec3 biomeColor = texelFetch(u_palette, ivec2(int(biomeId), 0), 0).rgb;
     float biomeShade = mix(1.0, 0.5 + 0.5 * lambert, u_hillshade);
@@ -138,7 +177,7 @@ void main() {
   // depth = surface − height, no shader. depth ≤ 0 → terra seca — a margem
   // se resolve sozinha; esculpir o relevo move a margem automaticamente.
   ivec2 cellIdx = ivec2(clamp(cell, vec2(0.0), u_grid - 1.0));
-  float lakeU16 = float(texelFetch(u_water, cellIdx, 0).r);
+  float lakeU16 = float(sampleTile(u_waterAtlas, u_waterPage, cellIdx, 0u));
   float surface_m = u_seaLevel;
   if (lakeU16 > 0.5) {
     surface_m = max(surface_m, u_range.x + (lakeU16 / 65535.0) * (u_range.y - u_range.x));
@@ -159,8 +198,9 @@ void main() {
 export class TerrainRenderer {
   private readonly program: WebGLProgram;
   private readonly vao: WebGLVertexArrayObject;
-  private readonly texture: WebGLTexture;
-  private readonly waterTexture: WebGLTexture;
+  private readonly heightAtlas: TileAtlas;
+  private readonly waterAtlas: TileAtlas;
+  private readonly biomeAtlas: TileAtlas;
   private readonly uniforms: {
     center: WebGLUniformLocation | null;
     mpp: WebGLUniformLocation | null;
@@ -172,6 +212,7 @@ export class TerrainRenderer {
     biomeVisible: WebGLUniformLocation | null;
     waterVisible: WebGLUniformLocation | null;
     useLensRamp: WebGLUniformLocation | null;
+    slopeMode: WebGLUniformLocation | null;
     hillshade: WebGLUniformLocation | null;
     zFactor: WebGLUniformLocation | null;
     dispRange: WebGLUniformLocation | null;
@@ -180,13 +221,7 @@ export class TerrainRenderer {
   private lens: LensDefinition = FINAL_LENS;
   /** faixa usada na última rampa enviada — evita re-upload por frame */
   private lensRampRange: DisplayRange | null = null;
-  private readonly biomeTexture: WebGLTexture;
   private readonly paletteTexture: WebGLTexture;
-  /** buffer 512² reutilizado para regiões de tiles não alocados */
-  private readonly baseTileData: Uint16Array;
-  /** idem, zerado, para tiles d'água desalocados (0 = sem água) */
-  private readonly zeroTileData: Uint16Array;
-  private readonly zeroTileDataU8: Uint8Array;
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
@@ -200,12 +235,6 @@ export class TerrainRenderer {
           `de textura desta GPU (${maxSize}). Aumente os metros por célula.`,
       );
     }
-    // P1-2 (DEFERIDO): as 3 texturas abaixo são de GRADE CHEIA (relevo R16UI +
-    // água R16UI + bioma R8UI ≈ 80 MB em 4000², 320 MB em 8000²) — a GPU não é
-    // esparsa como o TiledRaster (D4). Não é crítico em 4000², mas limita o
-    // teto do §1.1. Plano quando o profiler mandar: atlas de tiles físico +
-    // textura de indireção (page table), alocando só os tiles vivos. É troca
-    // de implementação isolada nesta classe — a interface do renderer não muda.
 
     this.program = createProgram(gl, VERTEX_SHADER, FRAGMENT_SHADER);
     this.uniforms = {
@@ -219,18 +248,27 @@ export class TerrainRenderer {
       biomeVisible: gl.getUniformLocation(this.program, 'u_biomeVisible'),
       waterVisible: gl.getUniformLocation(this.program, 'u_waterVisible'),
       useLensRamp: gl.getUniformLocation(this.program, 'u_useLensRamp'),
+      slopeMode: gl.getUniformLocation(this.program, 'u_slopeMode'),
       hillshade: gl.getUniformLocation(this.program, 'u_hillshade'),
       zFactor: gl.getUniformLocation(this.program, 'u_zFactor'),
       dispRange: gl.getUniformLocation(this.program, 'u_dispRange'),
     };
-    // unidades de textura fixas: 0 = relevo, 1 = água, 2 = biomas,
-    // 3 = paleta, 4 = rampa da lente
+
+    // unidades de textura: 0/1 = relevo atlas/page, 2/3 = água, 4/5 = bioma,
+    // 6 = paleta, 7 = rampa da lente
     gl.useProgram(this.program);
-    gl.uniform1i(gl.getUniformLocation(this.program, 'u_height'), 0);
-    gl.uniform1i(gl.getUniformLocation(this.program, 'u_water'), 1);
-    gl.uniform1i(gl.getUniformLocation(this.program, 'u_biome'), 2);
-    gl.uniform1i(gl.getUniformLocation(this.program, 'u_palette'), 3);
-    gl.uniform1i(gl.getUniformLocation(this.program, 'u_lensRamp'), 4);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_heightAtlas'), 0);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_heightPage'), 1);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_waterAtlas'), 2);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_waterPage'), 3);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_biomeAtlas'), 4);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_biomePage'), 5);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_palette'), 6);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_lensRamp'), 7);
+    // constantes do atlas: tamanho do tile e colunas (o preenchimento do
+    // relevo é o fillValue do raster; água/bioma preenchem com 0)
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_tileSize'), raster.tileSize);
+    gl.uniform1ui(gl.getUniformLocation(this.program, 'u_fillHeight'), raster.fillValue);
 
     // Quad da extensão do mundo em metros (triangle strip).
     const res = world.config.terrainResolution_m;
@@ -250,46 +288,46 @@ export class TerrainRenderer {
     gl.vertexAttribPointer(aWorld, 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
 
-    // Textura do heightmap: R16UI, sem filtro (bilinear é manual no shader).
+    // Atlas esparsos: relevo R16UI, água R16UI, bioma R8UI. u_atlasCols é o
+    // mesmo para os três (mesma grade), então basta enviar uma vez.
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
-    this.texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16UI, raster.widthCells, raster.heightCells);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const common = {
+      gl,
+      tilesX: raster.tilesX,
+      tilesY: raster.tilesY,
+      tileSize: raster.tileSize,
+      maxTextureSize: maxSize,
+    };
+    this.heightAtlas = new TileAtlas({
+      ...common,
+      internalFormat: gl.R16UI,
+      format: gl.RED_INTEGER,
+      type: gl.UNSIGNED_SHORT,
+      unpackAlignment: 2,
+    });
+    this.waterAtlas = new TileAtlas({
+      ...common,
+      internalFormat: gl.R16UI,
+      format: gl.RED_INTEGER,
+      type: gl.UNSIGNED_SHORT,
+      unpackAlignment: 2,
+    });
+    this.biomeAtlas = new TileAtlas({
+      ...common,
+      internalFormat: gl.R8UI,
+      format: gl.RED_INTEGER,
+      type: gl.UNSIGNED_BYTE,
+      unpackAlignment: 1,
+    });
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_atlasCols'), this.heightAtlas.cols);
 
-    this.baseTileData = new Uint16Array(raster.tileSize * raster.tileSize).fill(raster.fillValue);
-    for (let ty = 0; ty < raster.tilesY; ty++) {
-      for (let tx = 0; tx < raster.tilesX; tx++) {
-        this.uploadTile(tx, ty);
-      }
+    // sobe os tiles de relevo JÁ alocados (água/bioma entram via sync depois)
+    for (const [key, tile] of raster.allocatedTiles()) {
+      const { tx, ty } = parseTileKey(key);
+      this.heightAtlas.setTile(tx, ty, tile);
     }
 
-    // Textura da superfície d'água (mesma grade), inicia sem água (zeros).
-    this.zeroTileData = new Uint16Array(raster.tileSize * raster.tileSize);
-    this.waterTexture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.waterTexture);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16UI, raster.widthCells, raster.heightCells);
-    setNearestClamp(gl);
-    for (let ty = 0; ty < raster.tilesY; ty++) {
-      for (let tx = 0; tx < raster.tilesX; tx++) {
-        this.uploadRegion(this.waterTexture, tx, ty, this.zeroTileData);
-      }
-    }
-
-    // Textura de biomas (R8UI, mesma grade) + paleta indexada 256×1 (§4.4/§6).
-    this.zeroTileDataU8 = new Uint8Array(raster.tileSize * raster.tileSize);
-    this.biomeTexture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.biomeTexture);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, raster.widthCells, raster.heightCells);
-    setNearestClamp(gl);
-    for (let ty = 0; ty < raster.tilesY; ty++) {
-      for (let tx = 0; tx < raster.tilesX; tx++) {
-        this.uploadRegionU8(this.biomeTexture, tx, ty, this.zeroTileDataU8);
-      }
-    }
+    // paleta indexada 256×1 (§4.4/§6)
     this.paletteTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 1);
@@ -368,39 +406,32 @@ export class TerrainRenderer {
 
   /** Reenvia tiles sujos do raster DERIVADO de biomas. */
   updateBiomeTiles(dirtyKeys: TileKey[], biomeRaster: TiledRaster<Uint8Array>): void {
-    const raster = this.world.terrain.raster;
     for (const key of dirtyKeys) {
       const { tx, ty } = parseTileKey(key);
-      if (tx < 0 || ty < 0 || tx >= raster.tilesX || ty >= raster.tilesY) continue;
-      this.uploadRegionU8(
-        this.biomeTexture,
-        tx,
-        ty,
-        biomeRaster.getTile(tx, ty) ?? this.zeroTileDataU8,
-      );
+      const tile = biomeRaster.getTile(tx, ty);
+      if (tile) this.biomeAtlas.setTile(tx, ty, tile);
+      else this.biomeAtlas.clearTile(tx, ty);
     }
   }
 
   /** Reenvia só os tiles sujos (README §6.3: re-render após sculpt = só sujos). */
   updateTiles(dirtyKeys: TileKey[]): void {
+    const raster = this.world.terrain.raster;
     for (const key of dirtyKeys) {
       const { tx, ty } = parseTileKey(key);
-      this.uploadTile(tx, ty);
+      const tile = raster.getTile(tx, ty);
+      if (tile) this.heightAtlas.setTile(tx, ty, tile);
+      else this.heightAtlas.clearTile(tx, ty);
     }
   }
 
   /** Reenvia tiles sujos do raster DERIVADO de superfície d'água. */
   updateWaterTiles(dirtyKeys: TileKey[], waterRaster: TiledRaster<Uint16Array>): void {
-    const raster = this.world.terrain.raster;
     for (const key of dirtyKeys) {
       const { tx, ty } = parseTileKey(key);
-      if (tx < 0 || ty < 0 || tx >= raster.tilesX || ty >= raster.tilesY) continue;
-      this.uploadRegion(
-        this.waterTexture,
-        tx,
-        ty,
-        waterRaster.getTile(tx, ty) ?? this.zeroTileData,
-      );
+      const tile = waterRaster.getTile(tx, ty);
+      if (tile) this.waterAtlas.setTile(tx, ty, tile);
+      else this.waterAtlas.clearTile(tx, ty);
     }
   }
 
@@ -409,15 +440,12 @@ export class TerrainRenderer {
     const display = this.ensureLensRamp(view);
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.waterTexture);
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, this.biomeTexture);
-    gl.activeTexture(gl.TEXTURE3);
+    this.heightAtlas.bind(0, 1);
+    this.waterAtlas.bind(2, 3);
+    this.biomeAtlas.bind(4, 5);
+    gl.activeTexture(gl.TEXTURE6);
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
-    gl.activeTexture(gl.TEXTURE4);
+    gl.activeTexture(gl.TEXTURE7);
     gl.bindTexture(gl.TEXTURE_2D, this.lensRampTexture);
 
     const raster = this.world.terrain.raster;
@@ -442,6 +470,7 @@ export class TerrainRenderer {
     gl.uniform1f(this.uniforms.biomeVisible, this.world.biomes.visible && lens.showBiomes ? 1 : 0);
     gl.uniform1f(this.uniforms.waterVisible, this.world.water.visible && lens.showWater ? 1 : 0);
     gl.uniform1f(this.uniforms.useLensRamp, lens.buildRamp ? 1 : 0);
+    gl.uniform1f(this.uniforms.slopeMode, lens.slope ? 1 : 0);
     gl.uniform1f(this.uniforms.hillshade, lens.hillshade);
     gl.uniform1f(this.uniforms.zFactor, view.zFactor);
     gl.uniform2f(this.uniforms.dispRange, display.min_m, display.max_m);
@@ -449,47 +478,6 @@ export class TerrainRenderer {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.bindVertexArray(null);
     gl.activeTexture(gl.TEXTURE0);
-  }
-
-  private uploadTile(tx: number, ty: number): void {
-    const raster = this.world.terrain.raster;
-    if (tx < 0 || ty < 0 || tx >= raster.tilesX || ty >= raster.tilesY) return;
-    this.uploadRegion(this.texture, tx, ty, raster.getTile(tx, ty) ?? this.baseTileData);
-  }
-
-  /** Sobe um tile (ou região parcial, na borda) para a textura dada. */
-  private uploadRegion(texture: WebGLTexture, tx: number, ty: number, data: Uint16Array): void {
-    const gl = this.gl;
-    const raster = this.world.terrain.raster;
-    const T = raster.tileSize;
-    const x = tx * T;
-    const y = ty * T;
-    const w = Math.min(T, raster.widthCells - x);
-    const h = Math.min(T, raster.heightCells - y);
-
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    // O tile é 512 de largura; ROW_LENGTH permite subir região parcial na borda.
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, T);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RED_INTEGER, gl.UNSIGNED_SHORT, data);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-  }
-
-  /** Idem, para tiles uint8 (raster de biomas). */
-  private uploadRegionU8(texture: WebGLTexture, tx: number, ty: number, data: Uint8Array): void {
-    const gl = this.gl;
-    const raster = this.world.terrain.raster;
-    const T = raster.tileSize;
-    const x = tx * T;
-    const y = ty * T;
-    const w = Math.min(T, raster.widthCells - x);
-    const h = Math.min(T, raster.heightCells - y);
-
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, T);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RED_INTEGER, gl.UNSIGNED_BYTE, data);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
   }
 }
 

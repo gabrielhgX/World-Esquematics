@@ -30,7 +30,6 @@ export function RegionControls({
           onChange={(e) => onSettingsChange({ ...settings, color: e.target.value })}
         />
       </label>
-      <span className="hint">cliques desenham o polígono · Enter fecha · Esc cancela</span>
     </div>
   );
 }
@@ -63,17 +62,11 @@ export function POIControls({
           </option>
         ))}
       </select>
-      <span className="hint">clique posiciona o POI</span>
     </div>
   );
 }
 
+/** A ferramenta de medição não tem opções — a dica vai no toast (P2-2). */
 export function MeasureControls() {
-  return (
-    <div className="tool-group brush-controls">
-      <span className="hint">
-        cliques medem distância plana e real · Enter fecha o polígono (área) · Esc limpa
-      </span>
-    </div>
-  );
+  return null;
 }

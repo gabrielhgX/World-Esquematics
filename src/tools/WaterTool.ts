@@ -2,11 +2,13 @@ import {
   AddRiversCommand,
   FloodFillWaterCommand,
   SculptCommand,
+  basinSpillLevel,
   floodFillLake,
   heightToU16,
   newId,
   stampCellBounds,
   type BrushStamp,
+  type PolygonRing,
   type RiverNode,
   type RiverSpline,
   type TileKey,
@@ -17,8 +19,10 @@ import type { Modifiers, Tool, ToolContext } from './Tool';
 
 /**
  * WaterTool (README §7.2):
- * - modo LAGO: clique + cota → flood → FloodFillWaterCommand com o polígono
- *   da borda;
+ * - modo LAGO: pressione numa depressão e a água JORRA do fundo para cima,
+ *   enchendo a bacia CONTIDA pelo relevo (não alaga a planície). Segure para
+ *   subir o nível até o transbordo; solte para selar. Sem cota absoluta —
+ *   quem manda no nível é o próprio relevo;
  * - modo RIO: cliques adicionam nós; Enter conclui (valida cota decrescente,
  *   clampando — água não sobe), Esc cancela; opção de carvar o leito.
  */
@@ -27,8 +31,6 @@ export type WaterMode = 'lake' | 'river';
 
 export interface WaterSettings {
   mode: WaterMode;
-  /** cota absoluta da superfície do lago (m) */
-  lakeSurface_m: number;
   riverWidth_m: number;
   carveBed: boolean;
   carveDepth_m: number;
@@ -36,11 +38,24 @@ export interface WaterSettings {
 
 export const DEFAULT_WATER_SETTINGS: WaterSettings = {
   mode: 'lake',
-  lakeSurface_m: 10,
   riverWidth_m: 12,
   carveBed: true,
   carveDepth_m: 2,
 };
+
+/** tempo para encher a bacia do fundo ao transbordo, segurando (ms) */
+const FILL_DURATION_MS = 1600;
+/** um toque rápido ainda enche este tanto da bacia */
+const MIN_FILL_FRACTION = 0.25;
+
+/** Lago enchendo ao vivo (preview até soltar o botão). */
+interface LakeFill {
+  seed: Vec2;
+  spill_m: number;
+  bottom_m: number;
+  level_m: number;
+  polygon: PolygonRing | null;
+}
 
 export class WaterTool implements Tool {
   readonly cursor = 'crosshair';
@@ -48,13 +63,14 @@ export class WaterTool implements Tool {
 
   private cursorPos: Vec2 | null = null;
   private draftNodes: RiverNode[] = [];
+  private fill: LakeFill | null = null;
 
   constructor(private readonly ctx: ToolContext) {}
 
   onPointerDown(pt: Vec2, _mods: Modifiers): void {
     if (this.ctx.world.water.locked) return; // Outliner: camada travada
     if (this.settings.mode === 'lake') {
-      this.fillLake(pt);
+      this.startFill(pt);
     } else {
       this.addRiverNode(pt);
     }
@@ -64,7 +80,21 @@ export class WaterTool implements Tool {
     this.cursorPos = pt;
   }
 
-  onPointerUp(): void {}
+  /** Enquanto o botão está pressionado, o nível sobe — a água "jorra". */
+  onHold(dt_ms: number): void {
+    if (!this.fill) return;
+    const span = Math.max(this.fill.spill_m - this.fill.bottom_m, 0.5);
+    this.fill.level_m = Math.min(
+      this.fill.spill_m,
+      this.fill.level_m + (span / FILL_DURATION_MS) * dt_ms,
+    );
+    this.recomputeFillPolygon();
+  }
+
+  onPointerUp(): void {
+    if (this.settings.mode !== 'lake' || !this.fill) return;
+    this.commitFill();
+  }
 
   onKeyDown(key: string): boolean {
     if (this.settings.mode !== 'river') return false;
@@ -82,6 +112,22 @@ export class WaterTool implements Tool {
 
   drawOverlay(ctx: CanvasRenderingContext2D): void {
     const camera = this.ctx.camera;
+
+    // lago enchendo ao vivo (preview do jorro)
+    if (this.fill?.polygon) {
+      ctx.fillStyle = 'rgba(70, 130, 180, 0.5)';
+      ctx.strokeStyle = 'rgba(120, 190, 235, 0.95)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      this.fill.polygon.forEach(([x, y], i) => {
+        const s = camera.worldToScreen({ x, y });
+        if (i === 0) ctx.moveTo(s.x, s.y);
+        else ctx.lineTo(s.x, s.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
 
     // rascunho do rio em desenho
     if (this.draftNodes.length > 0) {
@@ -128,25 +174,51 @@ export class WaterTool implements Tool {
     return this.draftNodes.length;
   }
 
-  /** clique + cota → priority-flood → WaterBody com polígono da borda (§7.2) */
-  private fillLake(pt: Vec2): void {
-    const { world, bus } = this.ctx;
-    const result = floodFillLake(
-      world.terrain,
-      world.config.terrainResolution_m,
-      pt,
-      this.settings.lakeSurface_m,
-    );
-    if (!result || result.polygon.length < 3) return; // clique em terra seca
+  /** Pressionar numa depressão: a água começa a jorrar do fundo (§7.2). */
+  private startFill(pt: Vec2): void {
+    const { world } = this.ctx;
+    const basin = basinSpillLevel(world.terrain, world.config.terrainResolution_m, pt);
+    if (!basin) {
+      this.fill = null; // clique em encosta/planície: não há bacia para encher
+      return;
+    }
+    this.fill = {
+      // jorra a partir do FUNDO da bacia, não de onde o clique caiu
+      seed: basin.bottomSeed,
+      spill_m: basin.spill_m,
+      bottom_m: basin.bottom_m,
+      level_m: basin.bottom_m,
+      polygon: null,
+    };
+  }
+
+  /** Recalcula o contorno do lago no nível atual (contido: nível ≤ transbordo). */
+  private recomputeFillPolygon(): void {
+    if (!this.fill) return;
+    const res = this.ctx.world.config.terrainResolution_m;
+    const result = floodFillLake(this.ctx.world.terrain, res, this.fill.seed, this.fill.level_m);
+    this.fill.polygon = result && result.polygon.length >= 3 ? result.polygon : null;
+  }
+
+  /** Solta o botão: sela o lago no nível alcançado (um toque enche o mínimo). */
+  private commitFill(): void {
+    const fill = this.fill;
+    this.fill = null;
+    if (!fill) return;
+    const res = this.ctx.world.config.terrainResolution_m;
+    const minLevel = fill.bottom_m + (fill.spill_m - fill.bottom_m) * MIN_FILL_FRACTION;
+    const level = Math.min(fill.spill_m, Math.max(fill.level_m, minLevel));
+    const result = floodFillLake(this.ctx.world.terrain, res, fill.seed, level);
+    if (!result || result.polygon.length < 3) return;
 
     const body: WaterBody = {
       id: newId(),
       kind: 'lake',
-      surface_m: this.settings.lakeSurface_m,
+      surface_m: level,
       polygon: result.polygon,
       material: 'water_lake',
     };
-    bus.execute(new FloodFillWaterCommand(body));
+    this.ctx.bus.execute(new FloodFillWaterCommand(body));
   }
 
   private addRiverNode(pt: Vec2): void {
