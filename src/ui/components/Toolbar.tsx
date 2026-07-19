@@ -34,7 +34,7 @@ export type ActiveToolName =
 export const TOOL_HINTS: Record<ActiveToolName, string> = {
   pan: '',
   sculpt: 'Arraste para esculpir · segure o botão para fluxo contínuo',
-  water: 'Lago: clique numa depressão · Rio: cliques + Enter · Esc cancela',
+  water: 'Lago: segure numa depressão p/ encher · Rio: cliques + Enter · Esc cancela',
   road: 'Clique-arrastar cria a curva · Enter conclui · Esc cancela',
   biome: 'Cliques desenham o polígono · Enter fecha · Esc cancela',
   object: 'Clique posiciona o objeto',
